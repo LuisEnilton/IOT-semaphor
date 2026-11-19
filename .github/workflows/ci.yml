@@ -1,0 +1,21 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  edge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -e "edge[dev]"
+      - run: ruff check edge && ruff format --check edge
+      - run: cd edge && pytest
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install platformio
+      - run: cp firmware/include/secrets.example.h firmware/include/secrets.h
+      - run: cd firmware && pio run

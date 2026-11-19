@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+# PlatformIO
+.pio/
+# Segredos / config local
+.env
+firmware/include/secrets.h
+# Editor / SO
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json

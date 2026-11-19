@@ -1,0 +1,11 @@
+# Broker MQTT para desenvolver no notebook sem o Pi: `docker compose up -d`
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+    volumes:
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    restart: unless-stopped
+volumes:
+  mosquitto-data:

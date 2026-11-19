@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "platformio.platformio-ide",
+    "ms-python.python",
+    "charliermarsh.ruff",
+    "ms-vscode-remote.remote-ssh",
+    "editorconfig.editorconfig"
+  ]
+}
