@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 dependencies = ["paho-mqtt>=2.1"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff>=0.6", "platformio>=6.1"]
 
 [project.scripts]
 semaphor-edge = "semaphor_edge.cli:main"

@@ -1,5 +1,5 @@
 .PHONY: setup setup-pi broker lint test fw-build fw-upload fw-monitor monitor demo
-VENV := edge/.venv
+VENV := $(CURDIR)/edge/.venv
 
 setup:        ## notebook: venv isolado + dependências
 	python3 -m venv $(VENV) && $(VENV)/bin/pip install -U pip && $(VENV)/bin/pip install -e "edge[dev]"
@@ -19,14 +19,14 @@ broker:       ## broker local via Docker (notebook)
 lint:
 	$(VENV)/bin/ruff check edge && $(VENV)/bin/ruff format --check edge
 test:
-	cd edge && .venv/bin/pytest
+	cd edge && $(VENV)/bin/pytest
 fw-build:
-	cd firmware && pio run
+	cd firmware && $(VENV)/bin/pio run
 fw-upload:
-	cd firmware && pio run -t upload
+	cd firmware && $(VENV)/bin/pio run -t upload
 fw-monitor:
-	cd firmware && pio device monitor
+	cd firmware && $(VENV)/bin/pio device monitor
 monitor:
-	cd edge && .venv/bin/semaphor-edge monitor
+	cd edge && $(VENV)/bin/semaphor-edge monitor
 demo:
-	cd edge && .venv/bin/semaphor-edge demo
+	cd edge && $(VENV)/bin/semaphor-edge demo
