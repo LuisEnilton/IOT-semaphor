@@ -8,6 +8,105 @@ firmware/  PlatformIO (ESP32)          edge/   Python (Raspberry Pi)
 infra/     config do Mosquitto         docs/   documentação
 ```
 
+## Arquitetura
+
+### Visão geral
+
+```
+                         Rede Wi-Fi (UFPI)
+ ┌──────────────────────────────────────────────────────────┐
+ │                                                          │
+ │   ┌────────────────────────────┐        ┌─────────────┐  │
+ │   │  Raspberry Pi 5            │        │   ESP32     │  │
+ │   │                            │        │             │  │
+ │   │  câmera ─► visão (futuro)  │        │  firmware/  │  │
+ │   │              │ contagem    │        │  (Arduino)  │  │
+ │   │              ▼ por via     │  cmd   │      │      │  │
+ │   │  algoritmo de fila (edge/) ├───────►│      ▼      │  │
+ │   │              │             │        │  LEDs (4×3) │  │
+ │   │              ▼             │ state  │             │  │
+ │   │  cliente MQTT ◄────────────┼────────┤  status     │  │
+ │   │       ▲  ▼                 │ status │             │  │
+ │   │  ┌────┴──────────┐         │        └──────┬──────┘  │
+ │   │  │ Mosquitto     │◄────────┼───────────────┘         │
+ │   │  │ (broker :1883)│         │   (o ESP32 é cliente    │
+ │   │  └───────────────┘         │    MQTT do broker do Pi)│
+ │   └────────────────────────────┘                         │
+ └──────────────────────────────────────────────────────────┘
+```
+
+| Componente | Papel | Código |
+|---|---|---|
+| **Raspberry Pi 5** | Decide. Conta veículos, calcula as fases do semáforo e manda os comandos. Hospeda o broker | `edge/` |
+| **ESP32** | Executa. Acende os LEDs conforme o comando recebido e informa seu estado | `firmware/` |
+| **Mosquitto** | Intermediário (broker MQTT) entre os dois. Roda no Pi, porta 1883 | `infra/` |
+
+A separação é intencional: o **Pi pensa** e o **ESP32 só obedece**. O ESP32 não conhece
+a lógica de tráfego, então dá para trocar o algoritmo sem regravar o firmware.
+
+### Como a comunicação funciona
+
+Os dois lados **não se falam diretamente**. Cada um é cliente do broker MQTT e se comunica por
+**tópicos** (publicar/assinar):
+
+```
+ Pi (edge/)                      Mosquitto                       ESP32
+     │  publica cmd                  │                              │
+     ├──────────────────────────────►│  entrega a quem assina cmd   │
+     │  semaphor/<id>/cmd            ├─────────────────────────────►│ liga/desliga LEDs
+     │                               │                              │
+     │                               │  publica state (retained)    │
+     │  recebe state                 │◄─────────────────────────────┤ semaphor/<id>/state
+     │◄──────────────────────────────┤                              │
+     │                               │  publica status (retained)   │
+     │  recebe status                │◄─────────────────────────────┤ online / offline
+     │◄──────────────────────────────┤                              │
+```
+
+| Tópico | Quem publica | Para quê |
+|---|---|---|
+| `semaphor/<id>/cmd` | Pi | Estado desejado das vias, ex.: `{"roads":{"N":"green","S":"green","L":"red","O":"red"}}` |
+| `semaphor/<id>/state` | ESP32 | Estado real dos LEDs, publicado a cada mudança (*retained*) |
+| `semaphor/<id>/status` | ESP32 | `online` ao conectar; `offline` publicado pelo broker se o ESP32 cair (*Last Will*) |
+
+Detalhes e formatos completos em [docs/mqtt-topics.md](docs/mqtt-topics.md).
+
+### Por que MQTT
+
+- **Desacoplamento:** o Pi não precisa saber o IP do ESP32, só do broker. O ESP32 reconecta sozinho.
+- **Retained:** quem conecta depois (por exemplo, uma ferramenta de monitoramento) já recebe o último `state` e `status`.
+- **Last Will:** o Pi sabe se o semáforo caiu sem precisar fazer polling.
+- **Escala:** outro cruzamento é só outro `<id>` nos tópicos, e dá para depurar com `mosquitto_sub`.
+
+### Ciclo de uma troca de fase
+
+1. O algoritmo (Pi) decide abrir N/S e fechar L/O.
+2. O cliente MQTT publica o JSON em `semaphor/cruzamento1/cmd` (QoS 1).
+3. O broker entrega ao ESP32, que atualiza as 4 vias e os 12 LEDs.
+4. O ESP32 publica o novo `state`; o Pi pode confirmar que o semáforo fez o que foi pedido.
+5. O Pi **reenvia o comando periodicamente** (a cada poucos segundos), mesmo sem mudança.
+
+### Segurança operacional (modo seguro)
+
+O ESP32 não pode ficar com um verde preso se o Pi travar ou a rede cair. Se ele ficar
+**10 s sem receber comando** (`COMMAND_TIMEOUT_MS` em `firmware/include/config.h`), entra em
+**modo seguro**: amarelo piscante nas 4 vias, e publica `safe_mode: true` no `state`. Por isso o
+passo 5 acima é obrigatório: o comando funciona como um *heartbeat*. Ao receber um novo comando,
+o ESP32 volta ao funcionamento normal.
+
+O ESP32 só executa o que recebe. Evitar verdes conflitantes (vias cruzadas abertas ao mesmo
+tempo) é responsabilidade do algoritmo no Pi.
+
+### Rede
+
+- ESP32, Pi e notebook devem estar na **mesma rede** (hoje, a Wi-Fi da UFPI, que é aberta).
+  O ESP32 só conecta em **2,4 GHz**.
+- O ESP32 usa o **IP** do Pi (`MQTT_HOST` em `firmware/include/secrets.h`), não `raspberrypi.local`:
+  ele normalmente não resolve nomes `.local`. O IP vem de DHCP, então se mudar é preciso gravar o firmware de novo.
+- Redes institucionais podem **isolar clientes** (um dispositivo não enxerga o outro) e **bloquear SSH**
+  para o GitHub; neste caso, use HTTPS para o git e, se o isolamento atrapalhar, um roteador/hotspot só do projeto.
+- O broker de desenvolvimento é **anônimo e sem TLS**: use só em rede local confiável.
+
 ## Setup (colaboradores)
 
 Pré-requisitos no notebook: Python ≥ 3.10, VS Code (instale as extensões recomendadas), Docker (opcional).
