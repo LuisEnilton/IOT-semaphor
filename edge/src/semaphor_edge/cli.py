@@ -23,26 +23,38 @@ def cmd_monitor(cfg: Config, _args) -> None:
 
 
 def cmd_set(cfg: Config, args) -> None:
-    roads = dict(pair.split("=", 1) for pair in args.roads)
+    try:
+        roads = dict(pair.split("=", 1) for pair in args.roads)
+        payload = build_cmd(roads)
+    except ValueError as e:
+        raise SystemExit(f"erro: {e}") from None
     c = _client(cfg)
     c.loop_start()
-    c.publish(topic(cfg.intersection_id, "cmd"), build_cmd(roads), qos=1).wait_for_publish()
+    c.publish(topic(cfg.intersection_id, "cmd"), payload, qos=1).wait_for_publish()
     c.loop_stop()
 
 
+# Mesmo ciclo do modo local do firmware: (estado da via A, estado da via B, segundos).
+DEMO_CYCLE = [
+    ("green", "red", 5),
+    ("yellow", "red", 2),
+    ("red", "red", 1),
+    ("red", "green", 5),
+    ("red", "yellow", 2),
+    ("red", "red", 1),
+]
+
+
 def cmd_demo(cfg: Config, _args) -> None:
-    """Alterna N/S e L/O a cada 4 s (reenvia a cada 2 s para evitar o modo seguro)."""
+    """Ciclo A/B com amarelo e vermelho geral; reenvia o comando a cada 1 s (heartbeat)."""
     c = _client(cfg)
     c.loop_start()
-    phases = [
-        {"N": "green", "S": "green", "L": "red", "O": "red"},
-        {"N": "red", "S": "red", "L": "green", "O": "green"},
-    ]
     while True:
-        for phase in phases:
-            for _ in range(2):
-                c.publish(topic(cfg.intersection_id, "cmd"), build_cmd(phase), qos=1)
-                time.sleep(2)
+        for a, b, seconds in DEMO_CYCLE:
+            payload = build_cmd({"N": a, "S": a, "L": b, "O": b})
+            for _ in range(seconds):
+                c.publish(topic(cfg.intersection_id, "cmd"), payload, qos=1)
+                time.sleep(1)
 
 
 def main() -> None:
@@ -54,6 +66,6 @@ def main() -> None:
     s = sub.add_parser("set", help="define estados, ex.: set N=green S=green L=red O=red")
     s.add_argument("roads", nargs="+", metavar="VIA=ESTADO", help=f"vias {ROADS}, estados {STATES}")
     s.set_defaults(fn=cmd_set)
-    sub.add_parser("demo", help="ciclo simples de teste").set_defaults(fn=cmd_demo)
+    sub.add_parser("demo", help="ciclo A/B com amarelo e vermelho geral").set_defaults(fn=cmd_demo)
     args = p.parse_args()
     args.fn(Config.load(), args)

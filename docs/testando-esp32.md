@@ -4,8 +4,9 @@ Tutorial para validar o semáforo (ESP32 ligado por USB ao notebook) sem precisa
 para a lógica. Para a arquitetura, veja o [README](../README.md); para o formato das mensagens,
 [mqtt-topics.md](mqtt-topics.md).
 
-> Na maquete atual, só a via **N** tem LEDs montados: vermelho = GPIO 16, amarelo = 17, verde = 18.
-> Os comandos para as outras vias funcionam, mas você só enxerga o resultado no tópico `state`.
+> Na maquete atual estão montados **S1** (via `N`: vermelho 15, amarelo 2, verde 0) e **S2** (via `L`:
+> vermelho 4, amarelo 16, verde 17). S3 (`S`) e S4 (`O`) aparecem só no tópico `state`.
+> Mapa completo de pinos no [README](../README.md#hardware-da-maquete).
 
 ## 0. Pré-requisitos (uma vez)
 
@@ -34,7 +35,7 @@ make fw-upload      # grava no ESP32
 Esperado: `Hash of data verified` e `[SUCCESS]`.
 Se der `Failed to connect`, segure o botão **BOOT** da placa quando aparecer `Connecting...`.
 
-## 2. Teste sem rede: serial e LED
+## 2. Teste sem rede: serial e LEDs
 
 ```
 make fw-monitor     # Ctrl+C para sair
@@ -43,14 +44,20 @@ make fw-monitor     # Ctrl+C para sair
 Pressione o botão **EN** (reset) e confira:
 
 ```
-[boot] semaforo cruzamento1
-[safe] modo seguro: amarelo piscante
+[boot] semaforo cruzamento1 (envie 't' para o modo de teste)
 [wifi] conectando a UFPI...
+[modo] local: ciclo fixo
+[wifi] conectado, IP 10.13.x.x
 [mqtt] conectado               # só aparece se o broker estiver acessível
 ```
 
-**LED:** o amarelo (GPIO 17) deve piscar ~2x por segundo, com vermelho e verde apagados.
-Isso é o modo seguro e prova que a placa, o firmware e a fiação do LED estão ok.
+**Ciclo local:** sem o Pi, os LEDs seguem o ciclo fixo: S1 verde 5 s → S1 amarelo 2 s → todos
+vermelhos 1 s → S2 verde 5 s → S2 amarelo 2 s → todos vermelhos 1 s. Nunca deve haver dois LEDs
+acesos no mesmo semáforo, nem S1 e S2 fora do vermelho ao mesmo tempo.
+
+**Modo de teste (fiação):** com o `make fw-monitor` aberto, digite `t`. Os 12 LEDs acendem um por vez,
+500 ms cada, na ordem S1 vermelho/amarelo/verde, S2..., e depois volta o ciclo local. Use isso para
+achar LED invertido, pino trocado ou solda ruim.
 
 ## 3. Teste de comunicação (MQTT)
 
@@ -74,7 +81,7 @@ Num terminal:
 make monitor
 ```
 
-Ao reiniciar o ESP32 devem aparecer `status online` e um `state` com `"safe_mode":true`.
+Ao reiniciar o ESP32 devem aparecer `status online` e um `state` com `"mode":"local"`.
 Como são mensagens *retained*, elas aparecem também se o ESP32 já estava ligado.
 
 ### 3.2 Comandar
@@ -82,27 +89,40 @@ Como são mensagens *retained*, elas aparecem também se o ESP32 já estava liga
 Em outro terminal:
 
 ```
-edge/.venv/bin/semaphor-edge set N=red
-edge/.venv/bin/semaphor-edge set N=yellow
-edge/.venv/bin/semaphor-edge set N=green
-edge/.venv/bin/semaphor-edge set N=green S=green L=red O=red     # as 4 vias
+edge/.venv/bin/semaphor-edge set N=red S=red L=red O=red        # tudo vermelho
+edge/.venv/bin/semaphor-edge set N=green S=green                # via A verde (S1)
+edge/.venv/bin/semaphor-edge set N=yellow S=yellow
+edge/.venv/bin/semaphor-edge set N=red S=red L=green O=green    # via B verde (S2)
 ```
 
 Esperado a cada comando: o LED muda, o `make monitor` mostra o `cmd` e o novo `state`
-(`"safe_mode":false`), e o log serial mostra `[cmd] {...}`.
+(`"mode":"remote"`), e o log serial mostra `[cmd] {...}`. Mande o próximo comando em menos de
+10 s, senão o ESP32 volta ao ciclo local.
+
+**Conflito:** `semaphor-edge set N=green L=green` é recusado pela própria CLI. Para testar a
+proteção do ESP32, publique direto:
+
+```
+mosquitto_pub -t semaphor/cruzamento1/cmd -m '{"roads":{"N":"green","L":"green"}}'
+```
+
+O serial deve mostrar `[cmd] rejeitado: vias A e B ativas ao mesmo tempo` e os LEDs não mudam.
+Atenção: vias omitidas mantêm o estado atual, então `set N=green` sozinho é rejeitado se a via B
+estiver aberta naquele momento.
 
 Estados válidos: `red`, `yellow`, `green`, `off`, `flash_yellow`. Vias: `N`, `L`, `S`, `O`.
 
 ### 3.3 Ciclo contínuo
 
 ```
-make demo           # alterna N/S e L/O (Ctrl+C para parar)
+make demo           # mesmo ciclo do modo local, mas comandado pelo Pi/notebook (Ctrl+C para parar)
 ```
 
-## 4. Teste do modo seguro (timeout)
+## 4. Teste do timeout (volta ao ciclo local)
 
-1. Com o ESP32 em `green`, pare de mandar comandos.
-2. Após **10 s** o LED volta a piscar amarelo e o `state` mostra `"safe_mode":true`.
+1. Mande `set N=green S=green L=red O=red` e pare de mandar comandos.
+2. Após **10 s** o S1 passa para amarelo (2 s), depois todos vermelhos, e o ciclo local recomeça.
+   O `state` mostra `"mode":"local"`.
 
 Esse é o comportamento protetor se o Pi travar ou a rede cair.
 
@@ -114,12 +134,14 @@ publica `status offline`. Ao religar, volta `status online`.
 ## Checklist rápido
 
 - [ ] Gravou sem erro
-- [ ] Serial mostra `[boot]` e `[safe]`
-- [ ] LED amarelo piscando (modo seguro)
+- [ ] Serial mostra `[boot]` e `[modo] local`
+- [ ] Ciclo local correto, nunca 2 LEDs acesos no mesmo semáforo
+- [ ] Modo de teste (`t`) acende os LEDs montados na ordem certa
 - [ ] `[wifi]` conecta e `[mqtt] conectado` aparece
 - [ ] `status online` no `make monitor`
-- [ ] `set N=red/yellow/green` muda o LED e o `state`
-- [ ] Sem comandos por 10 s volta ao amarelo piscante
+- [ ] `set` muda os LEDs e o `state` (`mode: remote`)
+- [ ] Comando com conflito A/B é rejeitado
+- [ ] Sem comandos por 10 s volta ao ciclo local
 - [ ] Desligar o ESP32 gera `status offline`
 
 ## Problemas comuns
@@ -135,3 +157,5 @@ publica `status offline`. Ao religar, volta `status online`.
 | `Invalid publish topic` | Curinga `#` ou `+` num `mosquitto_pub` | Publique em `semaphor/cruzamento1/cmd`, sem curinga |
 | Comando aceito, LED não muda | Fiação/pino | Veja se o `state` mudou; confira o GPIO e o resistor do LED |
 | Tudo funcionava e parou | IP do broker mudou (DHCP) | Atualize `MQTT_HOST` e grave de novo |
+| Ao ligar, nada acontece; serial mostra `waiting for download` | GPIO 0 (verde do S1) puxado para LOW pelo LED no boot | Veja a nota sobre pinos de boot no README; teste reiniciando com o LED desconectado |
+| Gravação falha só com os LEDs montados | GPIO 2 ou 0 com carga durante a gravação | Segure **BOOT**; se persistir, desconecte o S1 para gravar |

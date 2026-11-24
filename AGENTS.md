@@ -21,15 +21,15 @@ código em inglês.
 ```
 firmware/
   platformio.ini            board esp32dev, libs PubSubClient e ArduinoJson
-  include/config.h          ID do cruzamento, pinos dos LEDs, timeout do modo seguro
+  include/config.h          ID do cruzamento, pinos (sem[4][3]), vias A/B, tempos do ciclo local e timeout
   include/secrets.example.h modelo de Wi-Fi/broker (secrets.h é local e ignorado pelo git)
-  src/main.cpp              Wi-Fi, MQTT, renderização dos LEDs, modo seguro
+  src/main.cpp              Wi-Fi/MQTT não bloqueantes, modos local/remote/test, LEDs, validação de conflito
 edge/
   pyproject.toml            pacote semaphor-edge (paho-mqtt); extras dev: pytest, ruff, platformio
   .env.example              MQTT_HOST, MQTT_PORT, INTERSECTION_ID (.env é local)
   src/semaphor_edge/
     config.py               lê .env + variáveis de ambiente
-    protocol.py             ROADS, STATES, topic(), build_cmd() com validação
+    protocol.py             ROADS, STATES, ROAD_GROUP, has_conflict(), build_cmd() com validação
     cli.py                  semaphor-edge monitor | set VIA=ESTADO... | demo
   tests/test_protocol.py
 infra/mosquitto/            config do broker do Docker (notebook)
@@ -51,7 +51,7 @@ Sempre use o Makefile; ele aponta para `edge/.venv` (o `pio` também está lá, 
 | `make fw-build` | Compila o firmware (não precisa de hardware) |
 | `make fw-upload` / `make fw-monitor` | Grava e lê a serial do ESP32 (precisa da placa no USB) |
 | `make broker` | Sobe o Mosquitto via Docker no notebook |
-| `make monitor` / `make demo` | Assina `semaphor/<id>/#` / alterna N-S e L-O a cada 4 s |
+| `make monitor` / `make demo` | Assina `semaphor/<id>/#` / ciclo A/B com amarelo e vermelho geral, reenviando a cada 1 s |
 
 **Antes de concluir qualquer mudança:** `make lint test` (Python) e `make fw-build` (firmware).
 O CI roda exatamente isso.
@@ -61,37 +61,52 @@ O CI roda exatamente isso.
 | Tópico | Direção | QoS / retained | Payload |
 |---|---|---|---|
 | `semaphor/<id>/cmd` | Pi → ESP32 | 1 / não | `{"roads": {"N": "green", "S": "green", "L": "red", "O": "red"}}` (vias omitidas não mudam) |
-| `semaphor/<id>/state` | ESP32 → Pi | 0 / sim | `{"safe_mode": false, "roads": {...}}` |
+| `semaphor/<id>/state` | ESP32 → Pi | 0 / sim | `{"mode": "local" \| "remote" \| "test", "roads": {...}}` |
 | `semaphor/<id>/status` | ESP32 → Pi | 1 / sim | `online` / `offline` (Last Will) |
 
 `<id>` = `cruzamento1`. Estados: `red`, `yellow`, `green`, `off`, `flash_yellow`.
+Semáforos físicos S1..S4 = vias `N`, `L`, `S`, `O`. Via **A** = N + S, via **B** = L + O.
 
 ## Regras que não podem ser quebradas
 
 1. **O protocolo vive em três lugares.** Qualquer mudança em tópicos, vias, estados ou formato do JSON
    deve atualizar juntos: `docs/mqtt-topics.md`, `firmware/src/main.cpp` + `firmware/include/config.h`,
    e `edge/src/semaphor_edge/protocol.py` (com teste em `edge/tests/`).
-2. **Modo seguro.** Sem comando por `COMMAND_TIMEOUT_MS` (10 s), o ESP32 pisca amarelo em todas as vias.
-   Todo controlador no Pi **deve reenviar o comando periodicamente** (bem abaixo de 10 s; o `demo` usa 2 s),
-   mesmo sem mudança de fase. Não remova nem enfraqueça esse mecanismo.
-3. **O ESP32 não valida conflitos.** Quem garante que vias cruzadas (N/S × L/O) nunca ficam verdes ao
-   mesmo tempo é o código do Pi. Toda lógica de fases precisa de teste cobrindo isso.
-4. **Segredos.** Nunca commite `firmware/include/secrets.h` nem `edge/.env`. Mudou um campo? Atualize
+2. **Resistor compartilhado.** Cada semáforo tem um único resistor para os 3 LEDs: **nunca** acenda dois
+   LEDs do mesmo semáforo, nem por um instante. Toda escrita de LED passa por `showColor()`, que apaga os
+   outros dois antes de acender o novo. Não escreva `digitalWrite(HIGH)` em pinos de LED fora dela
+   (exceção: o modo de teste, que acende um LED por vez no total).
+3. **Timeout e heartbeat.** Sem comando por `COMMAND_TIMEOUT_MS` (10 s), o ESP32 volta ao ciclo local
+   (modo `local`). Todo controlador no Pi **deve reenviar o comando periodicamente** (bem abaixo de 10 s;
+   o `demo` usa 1 s), mesmo sem mudança de fase. Não remova nem enfraqueça esse mecanismo.
+4. **Conflito A × B.** Vias A e B nunca podem estar em verde/amarelo ao mesmo tempo. O ESP32 rejeita
+   esses comandos e `protocol.build_cmd()` recusa montá-los, mas a lógica de fases do Pi (amarelo e
+   vermelho geral entre trocas) é a responsável principal. Toda lógica de fases precisa de teste cobrindo isso.
+5. **Segredos.** Nunca commite `firmware/include/secrets.h` nem `edge/.env`. Mudou um campo? Atualize
    os arquivos `*.example*` correspondentes.
-5. **O firmware não pode bloquear.** Nada de `delay()` longo no `loop()`; a renderização (pisca-pisca) e o
-   `mqtt.loop()` precisam rodar continuamente.
-6. **Python ≥ 3.10** (notebook com 3.10, Pi OS Bookworm com 3.11). Não use sintaxe de versões mais novas.
+6. **O firmware não pode bloquear.** Temporização sempre com `millis()` (máquina de estados), nunca com
+   `delay()`. A única exceção é o `delay(LOOP_YIELD_MS)` (10 ms) no fim do `loop()`, que cede CPU ao Wi-Fi/TCP:
+   **não remova** — sem ele o Wi-Fi demora ~30 s para conectar e o MQTT para de receber (testado).
+   Wi-Fi e MQTT são não bloqueantes; a única espera é o `mqtt.connect()` quando o broker não responde.
+7. **Pinos.** `setup()` põe todos os pinos em OUTPUT/LOW antes de qualquer outra coisa. Não use 1 e 3
+   (Serial) nem 6–11 (flash). 0, 2 e 15 são pinos de boot: o código não pode depender do estado deles
+   antes do `setup()`.
+8. **Python ≥ 3.10** (notebook com 3.10, Pi OS Bookworm com 3.11). Não use sintaxe de versões mais novas.
 
 ## Como modificar (receitas)
 
-**Mudar pinos dos LEDs:** edite `LED_PINS` em `firmware/include/config.h` (ordem `{vermelho, amarelo, verde}`
-por via, vias na ordem N, L, S, O). Evite GPIOs 0, 2, 12, 15 (strapping) e 34–39 (só entrada).
+**Mudar pinos dos LEDs:** edite `sem[4][3]` em `firmware/include/config.h` (ordem `{vermelho, amarelo, verde}`,
+linhas S1..S4 = N, L, S, O) e a tabela de pinos do README. Evite 1, 3, 6–11, 12 (strapping de tensão da
+flash) e 34–39 (só entrada).
+
+**Mudar tempos do ciclo local:** `TEMPO_VERDE_MS`, `TEMPO_AMARELO_MS`, `TEMPO_VERMELHO_GERAL_MS` em `config.h`.
+Se mudar, ajuste também `DEMO_CYCLE` em `cli.py` para os dois continuarem iguais.
 
 **Novo estado de luz** (ex.: `flash_red`): adicione ao enum `LightState` e a `STATE_NAMES` em `main.cpp`,
-trate em `render()`, ajuste o laço `k < 5` em `onMessage()` para o novo total, adicione a `STATES` em
-`protocol.py` e documente em `docs/mqtt-topics.md`.
+trate em `render()` (sempre via `showColor()`), adicione a `STATES` em `protocol.py`, decida se ele conta
+como ativo para o conflito (`isActive()` / `ACTIVE_STATES`) e documente em `docs/mqtt-topics.md`.
 
-**Novo comando/tópico:** defina o tópico em `main.cpp` (assine em `connectMqtt()`, trate em `onMessage()`
+**Novo comando/tópico:** defina o tópico em `main.cpp` (assine em `updateNetwork()`, trate em `onMessage()`
 filtrando por `topic`, já que hoje o callback assume que tudo é `cmd`), crie o helper em `protocol.py`,
 exponha na CLI se útil e documente.
 
@@ -114,12 +129,15 @@ mosquitto_sub -t 'semaphor/cruzamento1/#' -v
 mosquitto_pub -t semaphor/cruzamento1/cmd -q 1 -m '{"roads":{"N":"green"}}'
 ```
 
-O firmware loga na serial (115200): `[boot]`, `[safe]`, `[wifi]`, `[mqtt] conectado`, `[cmd] {...}`.
+O firmware loga na serial (115200): `[boot]`, `[modo] local|remote|teste`, `[wifi]`, `[mqtt]`, `[cmd] {...}`
+e `[cmd] rejeitado: ...`. Enviar `t` pela serial dispara o modo de teste (12 LEDs em sequência).
 Gravar firmware sobrescreve o que está na placa; só faça isso se a tarefa pedir.
 
 ## Particularidades do ambiente
 
-- **Maquete atual:** só a via **N** tem LEDs montados (GPIO 16, 17, 18). As outras vias só aparecem no `state`.
+- **Maquete atual:** S1 (N) e S2 (L) montados; S3 (S) e S4 (O) ainda não. Mapa de pinos no README.
+- **GPIO 0** tem o LED verde do S1: se a placa não iniciar após reset (`waiting for download`), é ele
+  puxando o pino para LOW no boot. Solução: mover esse LED para um pino livre (25, 26, 27, 32, 33).
 - **Rede UFPI (Wi-Fi aberta):** o ESP32 só conecta em 2,4 GHz. Os IPs vêm de DHCP e **mudam**; o
   `MQTT_HOST` é compilado no firmware, então IP novo = regravar. O ESP32 **não resolve `.local`**: use IP.
 - A UFPI **bloqueia SSH para o GitHub** (inclusive porta 443). Use o remoto HTTPS com token.
@@ -133,8 +151,11 @@ Feito e testado com hardware:
 
 - Ambiente de desenvolvimento (Makefile, venv, PlatformIO, CI, editorconfig, extensões do VS Code).
 - Firmware: Wi-Fi, MQTT com reconexão, 4 vias × 3 LEDs, publicação de `state`/`status`, Last Will,
-  modo seguro por timeout.
-- Edge: config por `.env`, protocolo com validação, CLI `monitor`/`set`/`demo`, testes do protocolo.
+  timeout com volta ao ciclo local.
+- Firmware da nova protoboard (testado na placa em 2026-11-24 com S1 e S2): pinos `sem[4][3]`,
+  resistor compartilhado (`showColor()`), modos `local`/`remote`/`test`, rejeição de conflito A × B,
+  Wi-Fi/MQTT não bloqueantes.
+- Edge: config por `.env`, protocolo com validação (inclusive conflito A × B), CLI `monitor`/`set`/`demo`, testes do protocolo.
 - Broker no Pi (`make setup-pi`) e ciclo completo Pi → ESP32 → Pi validado.
 - Documentação: README (arquitetura), contrato MQTT, tutorial de testes do ESP32.
 
@@ -142,9 +163,9 @@ Ainda não verificado: o cenário de queda (`status offline` via Last Will) e o 
 
 Limitações conhecidas:
 
-- `semaphor-edge set` com valor inválido imprime traceback em vez de mensagem amigável.
 - `onMessage()` no firmware não verifica o tópico (só há um assinado hoje).
-- O `demo` é um ciclo fixo sem amarelo nem vermelho geral; não é o controlador real.
+- `mqtt.connect()` pode bloquear ~alguns segundos se o broker não responder, atrasando a fase do ciclo local.
+- O `demo` é um ciclo fixo; não é o controlador real.
 - Broker anônimo e sem TLS.
 
 ## Próximos passos
@@ -158,11 +179,10 @@ Limitações conhecidas:
 3. **Algoritmo de fila:** tempos de verde dinâmicos conforme a contagem por via, com mínimo e máximo de
    verde para não deixar via esperando para sempre. Comparar com o ciclo fixo.
 4. **Serviço no Pi:** `semaphor-edge run` + unit systemd para iniciar no boot e usar o `state`/`status`
-   (ex.: reagir a `offline` e a `safe_mode`).
+   (ex.: reagir a `offline` e a `mode: local`).
 5. **Visão computacional:** captura com picamera2 e detecção de veículos (OpenCV clássico como primeiro
    passo; YOLO via NCNN depois, provavelmente com fine-tuning para os carrinhos da maquete), implementando a
    mesma interface do item 2.
-6. **Qualidade:** mensagem de erro amigável na CLI, filtro de tópico no firmware, testes do controlador
-   e da CLI.
+6. **Qualidade:** filtro de tópico no firmware, testes do controlador e da CLI.
 7. **Rede e segurança:** IP fixo (reserva na TI ou roteador do projeto); autenticação no Mosquitto se sair
    da rede de desenvolvimento.

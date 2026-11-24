@@ -18,3 +18,13 @@ def test_invalid_road_or_state():
 
 def test_topic():
     assert topic("c1", "cmd") == "semaphor/c1/cmd"
+
+
+def test_conflict_rejected():
+    with pytest.raises(ValueError):
+        build_cmd({"N": "green", "L": "yellow"})
+
+
+def test_same_group_and_red_allowed():
+    build_cmd({"N": "green", "S": "green", "L": "red", "O": "red"})
+    build_cmd({"N": "flash_yellow", "L": "flash_yellow"})

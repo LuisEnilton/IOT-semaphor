@@ -80,22 +80,47 @@ Detalhes e formatos completos em [docs/mqtt-topics.md](docs/mqtt-topics.md).
 
 ### Ciclo de uma troca de fase
 
-1. O algoritmo (Pi) decide abrir N/S e fechar L/O.
+1. O algoritmo (Pi) decide abrir a via A (N/S) e fechar a via B (L/O).
 2. O cliente MQTT publica o JSON em `semaphor/cruzamento1/cmd` (QoS 1).
-3. O broker entrega ao ESP32, que atualiza as 4 vias e os 12 LEDs.
+3. O broker entrega ao ESP32, que valida o comando (sem conflito entre A e B) e atualiza as 4 vias e os 12 LEDs.
 4. O ESP32 publica o novo `state`; o Pi pode confirmar que o semáforo fez o que foi pedido.
 5. O Pi **reenvia o comando periodicamente** (a cada poucos segundos), mesmo sem mudança.
 
-### Segurança operacional (modo seguro)
+### Hardware da maquete
 
-O ESP32 não pode ficar com um verde preso se o Pi travar ou a rede cair. Se ele ficar
-**10 s sem receber comando** (`COMMAND_TIMEOUT_MS` em `firmware/include/config.h`), entra em
-**modo seguro**: amarelo piscante nas 4 vias, e publica `safe_mode: true` no `state`. Por isso o
-passo 5 acima é obrigatório: o comando funciona como um *heartbeat*. Ao receber um novo comando,
-o ESP32 volta ao funcionamento normal.
+ESP32 DevKit 38 pinos, 4 semáforos com 3 LEDs cada (ativos em HIGH). Cada semáforo tem **um resistor
+compartilhado** pelos 3 LEDs, então o firmware nunca acende dois LEDs do mesmo semáforo ao mesmo tempo.
 
-O ESP32 só executa o que recebe. Evitar verdes conflitantes (vias cruzadas abertas ao mesmo
-tempo) é responsabilidade do algoritmo no Pi.
+| Semáforo | Via MQTT | Grupo | Vermelho | Amarelo | Verde |
+|---|---|---|---|---|---|
+| S1 | `N` | A | 15 | 2 | 0 |
+| S2 | `L` | B | 4 | 16 | 17 |
+| S3 | `S` | A | 5 | 18 | 19 |
+| S4 | `O` | B | 21 | 22 | 23 |
+
+S3 e S4 ainda não estão montados. Os pinos ficam em `sem[4][3]` em `firmware/include/config.h`.
+Algumas placas ESP32 têm um LED azul ligado ao GPIO 2 (amarelo do S1); a placa da maquete não tem.
+
+> **Pinos de boot (0, 2, 15):** o firmware os coloca em LOW logo no início do `setup()`, mas antes
+> disso quem manda é o hardware. O **GPIO 0 precisa estar em HIGH no reset** para a placa iniciar o
+> programa; com um LED + resistor até o GND nele (verde do S1), ele pode ser puxado para baixo e a
+> placa ficar parada em modo de gravação (`waiting for download` na serial). Se isso acontecer, troque
+> o verde do S1 para um pino livre (ex.: 25, 26, 27, 32 ou 33) e atualize `sem[][]`. O GPIO 15 em LOW no
+> boot só silencia o log inicial da ROM.
+
+### Modos do ESP32 e segurança
+
+| Modo | Quando | O que faz |
+|---|---|---|
+| `local` | Ao ligar e sempre que o Pi fica **10 s sem mandar comando** | Ciclo fixo: A verde 5 s → A amarelo 2 s → vermelho geral 1 s → B verde 5 s → B amarelo 2 s → vermelho geral 1 s |
+| `remote` | Ao receber um comando válido do Pi | Segue os comandos |
+| `test` | Ao receber `t` pela serial | Acende os 12 LEDs, um por vez, 500 ms cada, e volta ao `local` |
+
+Assim o cruzamento continua funcionando se o Pi travar ou a rede cair. Por isso o passo 5 acima é
+obrigatório: o comando funciona como um *heartbeat*. Os tempos do ciclo local ficam em `config.h`.
+
+O ESP32 **rejeita comandos que abririam as vias A e B ao mesmo tempo** (verde/amarelo nas duas), como
+última barreira. A lógica de fases (amarelo e vermelho geral entre as trocas) continua sendo do Pi.
 
 ### Rede
 
@@ -119,7 +144,7 @@ Pré-requisitos no notebook: Python ≥ 3.10, VS Code (instale as extensões rec
 5. Teste ponta a ponta: `make monitor` num terminal e `make demo` em outro (ou
    `edge/.venv/bin/semaphor-edge set N=green S=green L=red O=red`).
 
-> Guia completo de testes do ESP32 pelo notebook (serial, LEDs, MQTT, modo seguro):
+> Guia completo de testes do ESP32 pelo notebook (serial, LEDs, MQTT, modos):
 > [docs/testando-esp32.md](docs/testando-esp32.md).
 
 ### Raspberry Pi
