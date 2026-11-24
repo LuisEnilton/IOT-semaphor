@@ -98,7 +98,7 @@ compartilhado** pelos 3 LEDs, então o firmware nunca acende dois LEDs do mesmo 
 | S3 | `S` | A | 5 | 18 | 19 |
 | S4 | `O` | B | 21 | 22 | 23 |
 
-S3 e S4 ainda não estão montados. Os pinos ficam em `sem[4][3]` em `firmware/include/config.h`.
+Os 4 semáforos estão montados. Os pinos ficam em `sem[4][3]` em `firmware/include/config.h`.
 Algumas placas ESP32 têm um LED azul ligado ao GPIO 2 (amarelo do S1); a placa da maquete não tem.
 
 > **Pinos de boot (0, 2, 15):** o firmware os coloca em LOW logo no início do `setup()`, mas antes
@@ -114,7 +114,7 @@ Algumas placas ESP32 têm um LED azul ligado ao GPIO 2 (amarelo do S1); a placa 
 |---|---|---|
 | `local` | Ao ligar e sempre que o Pi fica **10 s sem mandar comando** | Ciclo fixo: A verde 5 s → A amarelo 2 s → vermelho geral 1 s → B verde 5 s → B amarelo 2 s → vermelho geral 1 s |
 | `remote` | Ao receber um comando válido do Pi | Segue os comandos |
-| `test` | Ao receber `t` pela serial | Acende os 12 LEDs, um por vez, 500 ms cada, e volta ao `local` |
+| `test` | Ao receber `t` pela serial, ou sempre no firmware de teste (`make fw-test`) | Acende os 12 LEDs, um por vez, 500 ms cada, informando semáforo, cor e GPIO na serial |
 
 Assim o cruzamento continua funcionando se o Pi travar ou a rede cair. Por isso o passo 5 acima é
 obrigatório: o comando funciona como um *heartbeat*. Os tempos do ciclo local ficam em `config.h`.
@@ -140,6 +140,7 @@ Pré-requisitos no notebook: Python ≥ 3.10, VS Code (instale as extensões rec
 2. Edite `firmware/include/secrets.h` com o Wi-Fi e o IP/hostname do broker (**nunca commite**).
 3. Broker: no Pi use `make setup-pi` (uma vez). Sem o Pi, use `make broker` (Docker) e aponte `MQTT_HOST` para o seu IP.
 4. Firmware: `make fw-build` → `make fw-upload` (ESP32 via USB) → `make fw-monitor`.
+   Para conferir a montagem dos LEDs: `make fw-test` (firmware de teste) e depois `make fw-upload` para voltar ao normal.
    Se o upload falhar por permissão: `sudo usermod -aG dialout $USER` e reabra a sessão.
 5. Teste ponta a ponta: `make monitor` num terminal e `make demo` em outro (ou
    `edge/.venv/bin/semaphor-edge set N=green S=green L=red O=red`).

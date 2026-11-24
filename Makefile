@@ -1,4 +1,4 @@
-.PHONY: setup setup-pi broker lint test fw-build fw-upload fw-monitor monitor demo
+.PHONY: setup setup-pi broker lint test fw-build fw-upload fw-test fw-monitor monitor demo
 VENV := $(CURDIR)/edge/.venv
 
 setup:        ## notebook: venv isolado + dependências
@@ -24,6 +24,8 @@ fw-build:
 	cd firmware && $(VENV)/bin/pio run
 fw-upload:
 	cd firmware && $(VENV)/bin/pio run -t upload
+fw-test:      ## grava o firmware de teste de montagem (LEDs em sequência, em repetição)
+	cd firmware && $(VENV)/bin/pio run -e teste -t upload
 fw-monitor:
 	cd firmware && $(VENV)/bin/pio device monitor
 monitor:

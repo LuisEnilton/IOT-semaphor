@@ -50,6 +50,7 @@ Sempre use o Makefile; ele aponta para `edge/.venv` (o `pio` também está lá, 
 | `make lint` / `make test` | Ruff (check + format) e pytest do `edge/` |
 | `make fw-build` | Compila o firmware (não precisa de hardware) |
 | `make fw-upload` / `make fw-monitor` | Grava e lê a serial do ESP32 (precisa da placa no USB) |
+| `make fw-test` | Grava o firmware de teste de montagem (env `teste`, `-DMODO_TESTE`): 12 LEDs em sequência, em repetição |
 | `make broker` | Sobe o Mosquitto via Docker no notebook |
 | `make monitor` / `make demo` | Assina `semaphor/<id>/#` / ciclo A/B com amarelo e vermelho geral, reenviando a cada 1 s |
 
@@ -130,12 +131,13 @@ mosquitto_pub -t semaphor/cruzamento1/cmd -q 1 -m '{"roads":{"N":"green"}}'
 ```
 
 O firmware loga na serial (115200): `[boot]`, `[modo] local|remote|teste`, `[wifi]`, `[mqtt]`, `[cmd] {...}`
-e `[cmd] rejeitado: ...`. Enviar `t` pela serial dispara o modo de teste (12 LEDs em sequência).
+e `[cmd] rejeitado: ...`. Enviar `t` pela serial dispara o modo de teste (12 LEDs em sequência, uma vez);
+o firmware `make fw-test` repete o teste para sempre. Cada passo loga `[teste] n/12 Sx cor (GPIO y)`.
 Gravar firmware sobrescreve o que está na placa; só faça isso se a tarefa pedir.
 
 ## Particularidades do ambiente
 
-- **Maquete atual:** S1 (N) e S2 (L) montados; S3 (S) e S4 (O) ainda não. Mapa de pinos no README.
+- **Maquete atual:** os 4 semáforos (12 LEDs) estão montados. Mapa de pinos no README.
 - **GPIO 0** tem o LED verde do S1: se a placa não iniciar após reset (`waiting for download`), é ele
   puxando o pino para LOW no boot. Solução: mover esse LED para um pino livre (25, 26, 27, 32, 33).
 - **Rede UFPI (Wi-Fi aberta):** o ESP32 só conecta em 2,4 GHz. Os IPs vêm de DHCP e **mudam**; o
@@ -152,9 +154,9 @@ Feito e testado com hardware:
 - Ambiente de desenvolvimento (Makefile, venv, PlatformIO, CI, editorconfig, extensões do VS Code).
 - Firmware: Wi-Fi, MQTT com reconexão, 4 vias × 3 LEDs, publicação de `state`/`status`, Last Will,
   timeout com volta ao ciclo local.
-- Firmware da nova protoboard (testado na placa em 2026-11-24 com S1 e S2): pinos `sem[4][3]`,
+- Firmware da nova protoboard (testado na placa em 2026-11-24 com os 4 semáforos): pinos `sem[4][3]`,
   resistor compartilhado (`showColor()`), modos `local`/`remote`/`test`, rejeição de conflito A × B,
-  Wi-Fi/MQTT não bloqueantes.
+  Wi-Fi/MQTT não bloqueantes, firmware de teste de montagem (`make fw-test`).
 - Edge: config por `.env`, protocolo com validação (inclusive conflito A × B), CLI `monitor`/`set`/`demo`, testes do protocolo.
 - Broker no Pi (`make setup-pi`) e ciclo completo Pi → ESP32 → Pi validado.
 - Documentação: README (arquitetura), contrato MQTT, tutorial de testes do ESP32.

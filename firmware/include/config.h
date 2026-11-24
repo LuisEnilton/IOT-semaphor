@@ -19,10 +19,12 @@ static const uint8_t NUM_ROADS = 4;
 const int sem[NUM_ROADS][3] = {
     {15, 2, 0},    // S1 = N
     {4, 16, 17},   // S2 = L
-    {5, 18, 19},   // S3 = S (ainda não montado)
-    {21, 22, 23},  // S4 = O (ainda não montado)
+    {5, 18, 19},   // S3 = S
+    {21, 22, 23},  // S4 = O
 };
 static const char *const ROAD_NAMES[NUM_ROADS] = {"N", "L", "S", "O"};
+static const char *const SEM_NAMES[NUM_ROADS] = {"S1", "S2", "S3", "S4"};
+static const char *const COLOR_NAMES[3] = {"vermelho", "amarelo", "verde"};
 
 // Via de cada semáforo: 0 = via A (S1 + S3), 1 = via B (S2 + S4).
 // As vias A e B nunca podem estar em verde/amarelo ao mesmo tempo.
@@ -34,6 +36,9 @@ static const uint32_t TEMPO_AMARELO_MS = 2000;
 static const uint32_t TEMPO_VERMELHO_GERAL_MS = 1000;
 
 // Modo de teste: cada LED aceso por este tempo, um de cada vez.
+// Com MODO_TESTE definido (ambiente "teste" do PlatformIO: `make fw-test`), o teste roda
+// em repetição desde o boot e os comandos do Pi são ignorados. Sem ele, o teste roda
+// uma vez ao receber 't' pela serial e depois volta ao ciclo local.
 static const uint32_t TEMPO_TESTE_LED_MS = 500;
 
 // Sem comando do Pi por este tempo => volta ao ciclo local.

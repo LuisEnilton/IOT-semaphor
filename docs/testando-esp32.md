@@ -4,9 +4,8 @@ Tutorial para validar o semáforo (ESP32 ligado por USB ao notebook) sem precisa
 para a lógica. Para a arquitetura, veja o [README](../README.md); para o formato das mensagens,
 [mqtt-topics.md](mqtt-topics.md).
 
-> Na maquete atual estão montados **S1** (via `N`: vermelho 15, amarelo 2, verde 0) e **S2** (via `L`:
-> vermelho 4, amarelo 16, verde 17). S3 (`S`) e S4 (`O`) aparecem só no tópico `state`.
-> Mapa completo de pinos no [README](../README.md#hardware-da-maquete).
+> A maquete tem os 4 semáforos montados: S1 (`N`), S2 (`L`), S3 (`S`) e S4 (`O`), 12 LEDs.
+> Via A = S1 + S3, via B = S2 + S4. Mapa de pinos no [README](../README.md#hardware-da-maquete).
 
 ## 0. Pré-requisitos (uma vez)
 
@@ -51,13 +50,30 @@ Pressione o botão **EN** (reset) e confira:
 [mqtt] conectado               # só aparece se o broker estiver acessível
 ```
 
-**Ciclo local:** sem o Pi, os LEDs seguem o ciclo fixo: S1 verde 5 s → S1 amarelo 2 s → todos
-vermelhos 1 s → S2 verde 5 s → S2 amarelo 2 s → todos vermelhos 1 s. Nunca deve haver dois LEDs
-acesos no mesmo semáforo, nem S1 e S2 fora do vermelho ao mesmo tempo.
+**Ciclo local:** sem o Pi, os LEDs seguem o ciclo fixo: via A (S1 + S3) verde 5 s → A amarelo 2 s →
+todos vermelhos 1 s → via B (S2 + S4) verde 5 s → B amarelo 2 s → todos vermelhos 1 s. S1 e S3 mudam
+juntos, assim como S2 e S4. Nunca deve haver dois LEDs acesos no mesmo semáforo, nem as duas vias fora
+do vermelho ao mesmo tempo.
 
-**Modo de teste (fiação):** com o `make fw-monitor` aberto, digite `t`. Os 12 LEDs acendem um por vez,
-500 ms cada, na ordem S1 vermelho/amarelo/verde, S2..., e depois volta o ciclo local. Use isso para
-achar LED invertido, pino trocado ou solda ruim.
+**Teste de montagem (fiação):** os 12 LEDs acendem um por vez, 500 ms cada, na ordem S1 vermelho →
+S1 amarelo → S1 verde → S2 vermelho → … → S4 verde, e a serial informa cada passo:
+
+```
+[teste]  1/12 S1 vermelho (GPIO 15)
+[teste]  2/12 S1 amarelo  (GPIO 2)
+...
+[teste] 12/12 S4 verde    (GPIO 23)
+```
+
+Se um LED não acender, a linha da serial naquele momento diz qual semáforo, cor e GPIO conferir.
+Há duas formas de rodar:
+
+| Forma | Como | Comportamento |
+|---|---|---|
+| Firmware normal | Com `make fw-monitor` aberto, digite `t` | Roda uma vez e volta ao ciclo local |
+| Firmware de teste (`MODO_TESTE`) | `make fw-test` e depois `make fw-monitor` | Repete para sempre e ignora comandos do Pi |
+
+Depois do `make fw-test`, rode `make fw-upload` para voltar ao firmware normal.
 
 ## 3. Teste de comunicação (MQTT)
 
@@ -90,9 +106,9 @@ Em outro terminal:
 
 ```
 edge/.venv/bin/semaphor-edge set N=red S=red L=red O=red        # tudo vermelho
-edge/.venv/bin/semaphor-edge set N=green S=green                # via A verde (S1)
+edge/.venv/bin/semaphor-edge set N=green S=green                # via A verde (S1 + S3)
 edge/.venv/bin/semaphor-edge set N=yellow S=yellow
-edge/.venv/bin/semaphor-edge set N=red S=red L=green O=green    # via B verde (S2)
+edge/.venv/bin/semaphor-edge set N=red S=red L=green O=green    # via B verde (S2 + S4)
 ```
 
 Esperado a cada comando: o LED muda, o `make monitor` mostra o `cmd` e o novo `state`
@@ -121,7 +137,7 @@ make demo           # mesmo ciclo do modo local, mas comandado pelo Pi/notebook 
 ## 4. Teste do timeout (volta ao ciclo local)
 
 1. Mande `set N=green S=green L=red O=red` e pare de mandar comandos.
-2. Após **10 s** o S1 passa para amarelo (2 s), depois todos vermelhos, e o ciclo local recomeça.
+2. Após **10 s** S1 e S3 passam para amarelo (2 s), depois todos vermelhos, e o ciclo local recomeça.
    O `state` mostra `"mode":"local"`.
 
 Esse é o comportamento protetor se o Pi travar ou a rede cair.
@@ -136,7 +152,7 @@ publica `status offline`. Ao religar, volta `status online`.
 - [ ] Gravou sem erro
 - [ ] Serial mostra `[boot]` e `[modo] local`
 - [ ] Ciclo local correto, nunca 2 LEDs acesos no mesmo semáforo
-- [ ] Modo de teste (`t`) acende os LEDs montados na ordem certa
+- [ ] Modo de teste (`t` ou `make fw-test`) acende os 12 LEDs na ordem certa, conferindo com a serial
 - [ ] `[wifi]` conecta e `[mqtt] conectado` aparece
 - [ ] `status online` no `make monitor`
 - [ ] `set` muda os LEDs e o `state` (`mode: remote`)

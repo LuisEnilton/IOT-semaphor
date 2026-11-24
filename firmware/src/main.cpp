@@ -133,13 +133,21 @@ static void updateLocal() {
   applyPhase(phase == PHASE_TRANSITION ? CYCLE_LEN - 1 : (phase + 1) % CYCLE_LEN);
 }
 
+// Acende só o LED testIndex (um por vez no total) e informa na serial.
+static void lightTestLed() {
+  uint8_t r = testIndex / 3, c = testIndex % 3;
+  testStartMs = millis();
+  digitalWrite(sem[r][c], HIGH);
+  Serial.printf("[teste] %2u/12 %s %-8s (GPIO %d)\n", testIndex + 1, SEM_NAMES[r], COLOR_NAMES[c],
+                sem[r][c]);
+}
+
 static void startTest() {
   Serial.println("[modo] teste: 12 LEDs em sequencia");
   mode = MODE_TEST;
   allLedsOff();
   testIndex = 0;
-  testStartMs = millis();
-  digitalWrite(sem[0][0], HIGH);
+  lightTestLed();
   publishState();
 }
 
@@ -147,12 +155,15 @@ static void updateTest() {
   if (millis() - testStartMs < TEMPO_TESTE_LED_MS) return;
   digitalWrite(sem[testIndex / 3][testIndex % 3], LOW);
   if (++testIndex >= NUM_ROADS * 3) {
+#ifdef MODO_TESTE
+    testIndex = 0;  // build de teste: repete para sempre
+#else
     for (auto &s : roads) s = RED;
     startLocal();
     return;
+#endif
   }
-  testStartMs = millis();
-  digitalWrite(sem[testIndex / 3][testIndex % 3], HIGH);
+  lightTestLed();
 }
 
 // Payload: {"roads": {"N": "green", "S": "green", "L": "red", "O": "red"}}
@@ -231,7 +242,11 @@ void setup() {
   for (auto &s : roads) s = RED;
 
   Serial.begin(115200);
+#ifdef MODO_TESTE
+  Serial.println("\n[boot] semaforo " INTERSECTION_ID);
+#else
   Serial.println("\n[boot] semaforo " INTERSECTION_ID " (envie 't' para o modo de teste)");
+#endif
 
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
@@ -240,7 +255,12 @@ void setup() {
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(onMessage);
 
+#ifdef MODO_TESTE
+  Serial.println("[boot] build MODO_TESTE: sequencia de LEDs em repeticao");
+  startTest();
+#else
   startLocal();
+#endif
 }
 
 void loop() {
