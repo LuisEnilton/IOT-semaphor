@@ -119,6 +119,9 @@ Pré-requisitos no notebook: Python ≥ 3.10, VS Code (instale as extensões rec
 5. Teste ponta a ponta: `make monitor` num terminal e `make demo` em outro (ou
    `edge/.venv/bin/semaphor-edge set N=green S=green L=red O=red`).
 
+> Guia completo de testes do ESP32 pelo notebook (serial, LEDs, MQTT, modo seguro):
+> [docs/testando-esp32.md](docs/testando-esp32.md).
+
 ### Raspberry Pi
 Pi OS 64-bit. Clone o repo, rode `make setup-pi`. Para desenvolver nele, use **VS Code Remote-SSH**
 (`ssh <usuario>@raspberrypi.local`). Ele usa venv com `--system-site-packages` porque o `picamera2`
