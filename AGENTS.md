@@ -25,16 +25,20 @@ firmware/
   include/secrets.example.h modelo de Wi-Fi/broker (secrets.h é local e ignorado pelo git)
   src/main.cpp              Wi-Fi/MQTT não bloqueantes, modos local/remote/test, LEDs, validação de conflito
 edge/
-  pyproject.toml            pacote semaphor-edge (paho-mqtt); extras dev: pytest, ruff, platformio
-  .env.example              MQTT_HOST, MQTT_PORT, INTERSECTION_ID (.env é local)
+  pyproject.toml            pacote semaphor-edge (paho-mqtt); extras dev (pytest, ruff, platformio)
+                            e vision (ultralytics, só no Pi)
+  .env.example              MQTT_*, INTERSECTION_ID, VISION_* (.env é local)
+  rois.example.json         polígonos de cada via na imagem (rois.json é local)
   src/semaphor_edge/
     config.py               lê .env + variáveis de ambiente
     protocol.py             ROADS, STATES, ROAD_GROUP, has_conflict(), build_cmd() com validação
-    cli.py                  semaphor-edge monitor | set VIA=ESTADO... | demo
-  tests/test_protocol.py
+    counting.py             VehicleCounter, count_by_roi, Smoother, SimulatedCounter (puro, testado)
+    vision.py               Camera (picamera2), YoloCounter (YOLO26 NCNN), draw (imports preguiçosos)
+    cli.py                  semaphor-edge monitor | set | demo | count [--sim] [--show] | snapshot
+  tests/                    test_protocol.py, test_counting.py
 infra/mosquitto/            config do broker do Docker (notebook)
 docker-compose.yml          broker local para desenvolver sem o Pi
-docs/                       mqtt-topics.md (contrato), testando-esp32.md (tutorial de testes)
+docs/                       mqtt-topics.md (contrato), testando-esp32.md, visao.md (câmera + YOLO)
 .github/workflows/ci.yml    lint + testes do edge e build do firmware
 Makefile                    todos os comandos do dia a dia
 ```
@@ -52,6 +56,8 @@ Sempre use o Makefile; ele aponta para `edge/.venv` (o `pio` também está lá, 
 | `make fw-upload` / `make fw-monitor` | Grava e lê a serial do ESP32 (precisa da placa no USB) |
 | `make broker` | Sobe o Mosquitto via Docker no notebook |
 | `make monitor` / `make demo` | Assina `semaphor/<id>/#` / ciclo A/B com amarelo e vermelho geral, reenviando a cada 1 s |
+| `make setup-vision` / `make vision-export` | No Pi: instala Ultralytics / exporta YOLO26n para NCNN |
+| `make count` / `make snapshot` | Fila por via com janela de calibração / salva um frame da câmera |
 
 **Antes de concluir qualquer mudança:** `make lint test` (Python) e `make fw-build` (firmware).
 O CI roda exatamente isso.
@@ -91,7 +97,10 @@ Semáforos físicos S1..S4 = vias `N`, `L`, `S`, `O`. Via **A** = N + S, via **B
 7. **Pinos.** `setup()` põe todos os pinos em OUTPUT/LOW antes de qualquer outra coisa. Não use 1 e 3
    (Serial) nem 6–11 (flash). 0, 2 e 15 são pinos de boot: o código não pode depender do estado deles
    antes do `setup()`.
-8. **Python ≥ 3.10** (notebook com 3.10, Pi OS Bookworm com 3.11). Não use sintaxe de versões mais novas.
+8. **Python ≥ 3.10** (notebook com 3.10, Pi com Raspberry Pi OS Trixie e Python 3.13). Não use sintaxe
+   de versões mais novas.
+9. **Visão fora do CI.** `ultralytics`, `picamera2` e `cv2` só podem ser importados dentro de `vision.py`
+   (e dentro de funções). Testes e `counting.py` não podem depender deles.
 
 ## Como modificar (receitas)
 
@@ -118,7 +127,10 @@ no `.env` do edge. Os tópicos já são separados por ID.
 Novos comandos de CLI vão em `cli.py` (subparser + função `cmd_*`).
 
 **Dependências Python:** adicione em `edge/pyproject.toml`. Pacotes que dependem de hardware do Pi
-(picamera2, libcamera) vêm do **apt**, não do pip.
+(picamera2, libcamera) vêm do **apt**, não do pip. Dependências só do Pi vão no extra `vision`.
+
+**Visão computacional:** tutorial em [docs/visao.md](docs/visao.md). Mudar o que conta como veículo =
+`VISION_CLASSES` no `.env`; regiões das vias = `edge/rois.json`. Pesos e datasets não vão para o git.
 
 ## Testar com hardware
 
@@ -135,6 +147,7 @@ Gravar firmware sobrescreve o que está na placa; só faça isso se a tarefa ped
 
 ## Particularidades do ambiente
 
+- **Câmera:** OV5647 (Camera Module v1.3) no CSI do Pi 5, detectada pelo `rpicam-hello --list-cameras`.
 - **Maquete atual:** S1 (N) e S2 (L) montados; S3 (S) e S4 (O) ainda não. Mapa de pinos no README.
 - **GPIO 0** tem o LED verde do S1: se a placa não iniciar após reset (`waiting for download`), é ele
   puxando o pino para LOW no boot. Solução: mover esse LED para um pino livre (25, 26, 27, 32, 33).
@@ -158,6 +171,12 @@ Feito e testado com hardware:
 - Edge: config por `.env`, protocolo com validação (inclusive conflito A × B), CLI `monitor`/`set`/`demo`, testes do protocolo.
 - Broker no Pi (`make setup-pi`) e ciclo completo Pi → ESP32 → Pi validado.
 - Documentação: README (arquitetura), contrato MQTT, tutorial de testes do ESP32.
+- Contagem de fila: `counting.py` (ROIs, suavização, simulador, com testes), `vision.py` (câmera +
+  YOLO26) e a CLI `count`/`snapshot`. Testado no Pi: o export NCNN, a captura pela OV5647 e a
+  contagem por ROI no `bus.jpg` (de 150 a 400 ms por leitura). Ainda não testado com a câmera sobre a
+  maquete.
+- `make setup-vision` instala o torch **CPU** antes do ultralytics. Sem isso, o pip baixa torch com
+  CUDA (cerca de 4,5 GB de pacotes `nvidia-*` inúteis no Pi).
 
 Ainda não verificado: o cenário de queda (`status offline` via Last Will) e o CI no GitHub.
 
@@ -174,15 +193,15 @@ Limitações conhecidas:
    entre trocas, reenvio periódico (heartbeat) e garantia de não conflito. Começar com ciclo fixo
    (linha de base) e testes unitários com relógio injetável (sem `time.sleep` nos testes).
    Tempos de amarelo e vermelho geral ainda a definir com a equipe (sugestão: 3 s e 1 s).
-2. **Fonte de contagem de veículos:** interface (ex.: `VehicleCounter.counts() -> dict[str, int]`) com
-   implementação simulada (aleatória ou via CLI), para desenvolver o algoritmo sem câmera.
+2. ~~Fonte de contagem de veículos~~: feito (`counting.VehicleCounter`, `SimulatedCounter`,
+   `count --sim`).
 3. **Algoritmo de fila:** tempos de verde dinâmicos conforme a contagem por via, com mínimo e máximo de
    verde para não deixar via esperando para sempre. Comparar com o ciclo fixo.
 4. **Serviço no Pi:** `semaphor-edge run` + unit systemd para iniciar no boot e usar o `state`/`status`
    (ex.: reagir a `offline` e a `mode: local`).
-5. **Visão computacional:** captura com picamera2 e detecção de veículos (OpenCV clássico como primeiro
-   passo; YOLO via NCNN depois, provavelmente com fine-tuning para os carrinhos da maquete), implementando a
-   mesma interface do item 2.
+5. **Visão computacional:** a base com YOLO26n NCNN e ROIs está pronta ([docs/visao.md](docs/visao.md)).
+   Falta montar a câmera sobre a maquete, calibrar `rois.json`, validar se o COCO detecta os carrinhos
+   (se não detectar, fazer fine-tuning) e rodar a visão numa thread dentro do controlador, sem atrasar o heartbeat.
 6. **Qualidade:** filtro de tópico no firmware, testes do controlador e da CLI.
 7. **Rede e segurança:** IP fixo (reserva na TI ou roteador do projeto); autenticação no Mosquitto se sair
    da rede de desenvolvimento.
