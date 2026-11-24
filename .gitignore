@@ -9,6 +9,13 @@ __pycache__/
 # Segredos / config local
 .env
 firmware/include/secrets.h
+edge/rois.json
+# Modelos e datasets de visão (pesados; baixe/exporte localmente)
+*.pt
+*_ncnn_model/
+datasets/
+runs/
+snapshots/
 # Editor / SO
 .DS_Store
 .vscode/*
