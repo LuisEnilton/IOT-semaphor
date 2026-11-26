@@ -34,7 +34,7 @@ edge/
   tests/test_protocol.py
 infra/mosquitto/            config do broker do Docker (notebook)
 docker-compose.yml          broker local para desenvolver sem o Pi
-docs/                       mqtt-topics.md (contrato), testando-esp32.md (tutorial de testes)
+docs/                       mqtt-topics.md (contrato), testando-esp32.md (testes), BACKLOG.md
 .github/workflows/ci.yml    lint + testes do edge e build do firmware
 Makefile                    todos os comandos do dia a dia
 ```
@@ -172,10 +172,13 @@ Limitações conhecidas:
 
 ## Próximos passos
 
+Backlog detalhado, com prioridades, critérios de aceite e marcos: [docs/BACKLOG.md](docs/BACKLOG.md).
+Resumo:
+
 1. **Controlador de fases** (`edge/`): máquina de estados com fases N/S e L/O, amarelo e vermelho geral
    entre trocas, reenvio periódico (heartbeat) e garantia de não conflito. Começar com ciclo fixo
    (linha de base) e testes unitários com relógio injetável (sem `time.sleep` nos testes).
-   Tempos de amarelo e vermelho geral ainda a definir com a equipe (sugestão: 3 s e 1 s).
+   Tempos ainda a definir com a equipe (o ciclo local do ESP32 usa verde 5 s, amarelo 2 s, vermelho geral 1 s).
 2. **Fonte de contagem de veículos:** interface (ex.: `VehicleCounter.counts() -> dict[str, int]`) com
    implementação simulada (aleatória ou via CLI), para desenvolver o algoritmo sem câmera.
 3. **Algoritmo de fila:** tempos de verde dinâmicos conforme a contagem por via, com mínimo e máximo de
