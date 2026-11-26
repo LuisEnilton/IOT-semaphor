@@ -32,8 +32,11 @@ edge/
     protocol.py             ROADS, STATES, ROAD_GROUP, has_conflict(), build_cmd() com validação
     phases.py               Timing, Phase, PhaseController (lógica pura, relógio injetável), start_phase_for()
     runner.py               Runner (heartbeat, retomada segura), StateMonitor (avisos), run() com paho-mqtt
-    cli.py                  semaphor-edge run [--green --yellow --all-red] | monitor | set VIA=ESTADO...
-  tests/                    test_protocol.py, test_phases.py, test_runner.py
+    traffic.py              VehicleCounter (interface), SimulatedTraffic (filas e espera), parse_arrivals()
+    policy.py               QueueParams, QueuePolicy: verde = maior fila × s/veículo, entre mín. e máx.
+    simulation.py           simulate()/compare(): ciclo fixo × fila em tempo simulado (sem MQTT)
+    cli.py                  semaphor-edge run [--simulado] | simular | monitor | set VIA=ESTADO...
+  tests/                    test_protocol.py, test_phases.py, test_runner.py, test_traffic_policy.py
 infra/mosquitto/            config do broker do Docker (notebook)
 docker-compose.yml          broker local para desenvolver sem o Pi
 docs/                       mqtt-topics.md (contrato), testando-esp32.md (testes), BACKLOG.md
@@ -55,6 +58,8 @@ Sempre use o Makefile; ele aponta para `edge/.venv` (o `pio` também está lá, 
 | `make fw-test` | Grava o firmware de teste de montagem (env `teste`, `-DMODO_TESTE`): 12 LEDs em sequência, em repetição |
 | `make broker` | Sobe o Mosquitto via Docker no notebook |
 | `make run` | Controlador de fases: Pi comanda o ESP32 (tempos do `edge/.env`), heartbeat de 1 s. `make demo` é apelido |
+| `make run-sim` | `run` com tráfego simulado e algoritmo de fila (verde dinâmico, 3–15 s) |
+| `make simular` | Compara ciclo fixo × algoritmo de fila offline (tempo médio de espera), ~1 s |
 | `make monitor` | Assina `semaphor/<id>/#` e imprime tudo |
 
 **Antes de concluir qualquer mudança:** `make lint test` (Python) e `make fw-build` (firmware).
@@ -107,9 +112,14 @@ flash) e 34–39 (só entrada).
 No ciclo local do ESP32 (fallback sem Pi), `TEMPO_VERDE_MS`, `TEMPO_AMARELO_MS`, `TEMPO_VERMELHO_GERAL_MS`
 em `config.h`. Mantenha os dois iguais, a menos que a diferença seja intencional.
 
-**Algoritmo de fila (E3):** passe uma `green_policy` (função `grupo "A"/"B" -> segundos de verde`) ao
-`PhaseController`/`Runner`/`run()`. Ela é consultada ao entrar em cada verde. Não mexa na sequência de
-fases (amarelo e vermelho geral) nem na retomada segura (`start_phase_for`).
+**Algoritmo de fila:** está em `policy.py` (`QueuePolicy`), plugado como `green_policy` (função
+`grupo "A"/"B" -> segundos de verde`, consultada ao entrar em cada verde). Para testar outra regra, crie outra
+policy e compare com `simulation.compare()` / `make simular`. Não mexa na sequência de fases (amarelo e
+vermelho geral) nem na retomada segura (`start_phase_for`): a alternância A/B é o que garante o anti-inanição.
+Parâmetros no `.env`: `MIN_GREEN_S`, `MAX_GREEN_S`, `SEC_PER_VEHICLE`, `ARRIVALS`.
+
+**Nova fonte de contagem (ex.: câmera, E4):** implemente `VehicleCounter.counts() -> dict[str, int]` e passe
+para `QueuePolicy` no lugar do `SimulatedTraffic`.
 
 **Novo estado de luz** (ex.: `flash_red`): adicione ao enum `LightState` e a `STATE_NAMES` em `main.cpp`,
 trate em `render()` (sempre via `showColor()`), adicione a `STATES` em `protocol.py`, decida se ele conta
@@ -177,7 +187,7 @@ Limitações conhecidas:
 
 - `onMessage()` no firmware não verifica o tópico (só há um assinado hoje).
 - `mqtt.connect()` pode bloquear ~alguns segundos se o broker não responder, atrasando a fase do ciclo local.
-- O `run` ainda não tem algoritmo de fila (verde fixo) e não roda como serviço (E5).
+- A contagem de veículos ainda é simulada (`run --simulado`); a câmera vem no E4. O `run` não roda como serviço (E5).
 - Broker anônimo e sem TLS.
 
 ## Próximos passos
@@ -186,10 +196,7 @@ Backlog detalhado, com prioridades, critérios de aceite e marcos: [docs/BACKLOG
 Resumo:
 
 1. ~~Controlador de fases~~ (feito: `make run`). Tempos mantidos em 5/2/1 s (decisão D1).
-2. **Fonte de contagem de veículos:** interface (ex.: `VehicleCounter.counts() -> dict[str, int]`) com
-   implementação simulada (aleatória ou via CLI), para desenvolver o algoritmo sem câmera.
-3. **Algoritmo de fila:** tempos de verde dinâmicos conforme a contagem por via, com mínimo e máximo de
-   verde para não deixar via esperando para sempre. Comparar com o ciclo fixo.
+2. ~~Contagem simulada~~ e 3. ~~Algoritmo de fila~~ (feitos: `make run-sim`, `make simular`; resultados no BACKLOG, E3.3).
 4. **Serviço no Pi:** unit systemd para o `semaphor-edge run` iniciar no boot (E5).
 5. **Visão computacional:** captura com picamera2 e detecção de veículos (OpenCV clássico como primeiro
    passo; YOLO via NCNN depois, provavelmente com fine-tuning para os carrinhos da maquete), implementando a

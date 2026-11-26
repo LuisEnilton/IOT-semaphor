@@ -22,6 +22,10 @@ class Config:
     yellow_s: float = 2.0
     all_red_s: float = 1.0
     heartbeat_s: float = 1.0
+    min_green_s: float = 3.0
+    max_green_s: float = 15.0
+    sec_per_vehicle: float = 1.0
+    arrivals: str = "N=0.35,S=0.3,L=0.1,O=0.1"
 
     @classmethod
     def load(cls) -> "Config":
@@ -34,4 +38,8 @@ class Config:
             yellow_s=float(os.getenv("YELLOW_S", "2")),
             all_red_s=float(os.getenv("ALL_RED_S", "1")),
             heartbeat_s=float(os.getenv("HEARTBEAT_S", "1")),
+            min_green_s=float(os.getenv("MIN_GREEN_S", "3")),
+            max_green_s=float(os.getenv("MAX_GREEN_S", "15")),
+            sec_per_vehicle=float(os.getenv("SEC_PER_VEHICLE", "1")),
+            arrivals=os.getenv("ARRIVALS", "N=0.35,S=0.3,L=0.1,O=0.1"),
         )

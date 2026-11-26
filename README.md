@@ -91,6 +91,17 @@ Quem faz isso é o controlador de fases (`make run` / `semaphor-edge run`, códi
 `--green`, `--yellow` e `--all-red`. Ao assumir o controle, e sempre que o ESP32 volta em modo `local`
 (reboot, queda de Wi-Fi), o Pi retoma pelo amarelo da via que estiver aberta, para nunca cortar um verde.
 
+### Algoritmo de fila
+
+Com `make run-sim`, o Pi usa o **verde dinâmico**: ao abrir uma via, dá tempo para escoar a maior fila dela
+(fila × 1 s por veículo), entre **3 e 15 s**. Como as vias A e B continuam se alternando, nenhuma fica mais de
+21 s sem verde. Por enquanto as filas vêm de um **tráfego simulado** (`ARRIVALS` no `edge/.env`); a câmera
+(visão computacional) vai fornecer a contagem real pela mesma interface (`VehicleCounter`).
+
+`make simular` compara o ciclo fixo com o algoritmo em tempo simulado, pelo **tempo médio de espera por
+veículo**. No cenário com a via A mais carregada, a espera cai de ~58 s para ~9 s (detalhes em
+[docs/BACKLOG.md](docs/BACKLOG.md), item E3.3).
+
 ### Hardware da maquete
 
 ESP32 DevKit 38 pinos, 4 semáforos com 3 LEDs cada (ativos em HIGH). Cada semáforo tem **um resistor

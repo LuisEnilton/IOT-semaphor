@@ -160,7 +160,10 @@ def run(
     heartbeat_s: float = 1.0,
     green_policy: GreenPolicy | None = None,
     tick_s: float = 0.05,
+    on_tick: Callable[[float, dict[str, str]], None] | None = None,
 ) -> None:
+    """Roda até Ctrl+C. `on_tick(now, roads)` é chamado a cada volta com o estado atual
+    das vias (usado para avançar o tráfego simulado)."""
     cmd_topic = topic(cfg.intersection_id, "cmd")
     state_topic = topic(cfg.intersection_id, "state")
     status_topic = topic(cfg.intersection_id, "status")
@@ -214,7 +217,10 @@ def run(
     client.loop_start()
     try:
         while True:
-            runner.step(time.monotonic())
+            now = time.monotonic()
+            if on_tick and runner.controller:
+                on_tick(now, runner.controller.roads)
+            runner.step(now)
             time.sleep(tick_s)
     except KeyboardInterrupt:
         log.info("encerrando; o ESP32 volta ao ciclo local em ~%.0f s", ESP32_TIMEOUT_S)

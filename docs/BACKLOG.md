@@ -18,11 +18,11 @@ Visão técnica e regras do código: [AGENTS.md](../AGENTS.md). Arquitetura: [RE
 ## Decisões pendentes (equipe)
 
 - [x] **D1 (P0)** Tempos da maquete: mantidos os atuais (verde 5 s, amarelo 2 s, vermelho geral 1 s),
-  podendo mudar depois. Ficam configuráveis no Pi. Verde mínimo e máximo do algoritmo serão definidos em E3.1.
+  podendo mudar depois. Ficam configuráveis no Pi. Algoritmo de fila: verde mínimo 3 s e máximo 15 s.
 - [x] **D2 (P0)** Rede da demonstração: **Wi-Fi da UFPI**. Riscos aceitos: IPs mudam (DHCP) e a rede pode
   isolar dispositivos. Por isso R1 e R3 sobem de prioridade.
-- [ ] **D3 (P1)** Métrica de sucesso do algoritmo (ex.: tempo médio de espera, fila máxima, veículos
-  atendidos por ciclo) para comparar com o ciclo fixo.
+- [x] **D3 (P1)** Métrica de sucesso: **tempo médio de espera por veículo** (secundárias: fila máxima e
+  veículos atendidos).
 - [ ] **D4 (P2)** Contar só carros ou também tipos de veículo (influencia a escolha do detector em E4).
 
 ## Infra e rede
@@ -53,20 +53,29 @@ Visão técnica e regras do código: [AGENTS.md](../AGENTS.md). Arquitetura: [RE
 
 ## E2. Contagem de veículos simulada (M2)
 
-- [ ] **E2.1 (P0)** Interface `VehicleCounter` (ex.: `counts() -> dict[str, int]` por via `N`, `L`, `S`, `O`).
-- [ ] **E2.2 (P1)** Implementação simulada: chegadas aleatórias por via com taxa configurável e cenários
+- [x] **E2.1 (P0)** Interface `VehicleCounter` (ex.: `counts() -> dict[str, int]` por via `N`, `L`, `S`, `O`).
+- [x] **E2.2 (P1)** Implementação simulada: chegadas aleatórias por via com taxa configurável e cenários
   (ex.: via A congestionada), e saída de veículos durante o verde.
 - [ ] **E2.3 (P2)** Contagem manual pela CLI ou MQTT (ex.: `semaphor-edge fila N=5 L=1`) para
   demonstrações controladas.
 
 ## E3. Algoritmo de fila (M2)
 
-- [ ] **E3.1 (P0)** Verde dinâmico: duração do verde de cada via proporcional à fila, limitada por verde
-  mínimo e máximo (D1). *Aceite:* testes com filas desbalanceadas dão mais verde à via mais cheia.
-- [ ] **E3.2 (P1)** Anti-inanição: nenhuma via espera mais que um limite, mesmo com fila zero na contagem
-  (proteção contra falha de detecção).
-- [ ] **E3.3 (P1)** Simulação offline comparando ciclo fixo e algoritmo pelas métricas de D3
-  (script ou testes), com resultados para o relatório.
+- [x] **E3.1 (P0)** Verde dinâmico: verde = maior fila do grupo × 1 s por veículo, entre 3 e 15 s
+  (`policy.py`). Uso na maquete: `make run-sim` (tráfego simulado).
+- [x] **E3.2 (P1)** Anti-inanição: garantido pela alternância A/B. Pior caso sem verde: 21 s
+  (amarelo + vermelho + verde máximo + amarelo + vermelho), mesmo com a contagem zerada. Coberto por teste.
+- [x] **E3.3 (P1)** Simulação offline (`make simular`). Resultados (1800 s, média de 5 rodadas):
+
+  | Cenário (veículos/s) | Ciclo fixo (verde 5 s) | Algoritmo de fila |
+  |---|---|---|
+  | A carregada: N=0,35 S=0,3 L=0,1 O=0,1 | 58,1 s de espera, fila máx. 100 | **8,7 s**, fila máx. 14 |
+  | Equilibrado leve: 0,1 em todas | 5,9 s | 5,8 s |
+  | Equilibrado pesado: 0,25 em todas | 12,0 s | **9,1 s** |
+
+  No cenário desbalanceado o ciclo fixo não dá vazão à via A (capacidade de ~0,31 veículo/s) e a fila cresce
+  sem parar. Com tráfego leve os dois empatam. Modelo simples (chegadas aleatórias, 1 veículo/s no verde);
+  os números servem para comparar métodos, não para prever tráfego real.
 - [ ] **E3.4 (P2)** Pular a fase da via vazia (só abre se houver demanda), respeitando o anti-inanição.
 
 ## E4. Visão computacional (M3)

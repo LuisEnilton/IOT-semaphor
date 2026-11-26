@@ -1,4 +1,4 @@
-.PHONY: setup setup-pi broker lint test fw-build fw-upload fw-test fw-monitor monitor run demo
+.PHONY: setup setup-pi broker lint test fw-build fw-upload fw-test fw-monitor monitor run run-sim simular demo
 VENV := $(CURDIR)/edge/.venv
 
 setup:        ## notebook: venv isolado + dependências
@@ -32,4 +32,8 @@ monitor:
 	cd edge && $(VENV)/bin/semaphor-edge monitor
 run:          ## controlador de fases (Pi comanda o ESP32); Ctrl+C para parar
 	cd edge && $(VENV)/bin/semaphor-edge run
+run-sim:      ## controlador com tráfego simulado e algoritmo de fila (verde dinâmico)
+	cd edge && $(VENV)/bin/semaphor-edge run --simulado
+simular:      ## compara ciclo fixo x algoritmo de fila (offline, ~1 min)
+	cd edge && $(VENV)/bin/semaphor-edge simular
 demo: run     ## nome antigo do run
