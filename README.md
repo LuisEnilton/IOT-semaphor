@@ -99,8 +99,8 @@ Com `make run-sim`, o Pi usa o **verde dinâmico**: ao abrir uma via, dá tempo 
 (visão computacional) vai fornecer a contagem real pela mesma interface (`VehicleCounter`).
 
 `make simular` compara o ciclo fixo com o algoritmo em tempo simulado, pelo **tempo médio de espera por
-veículo**. No cenário com a via A mais carregada, a espera cai de ~58 s para ~9 s (detalhes em
-[docs/BACKLOG.md](docs/BACKLOG.md), item E3.3).
+veículo**. No cenário com a via A mais carregada, a espera cai de ~58 s para ~9 s.
+Explicação completa, garantias de segurança e resultados: [docs/algoritmo-de-fila.md](docs/algoritmo-de-fila.md).
 
 ### Hardware da maquete
 

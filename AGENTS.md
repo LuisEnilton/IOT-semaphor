@@ -39,7 +39,7 @@ edge/
   tests/                    test_protocol.py, test_phases.py, test_runner.py, test_traffic_policy.py
 infra/mosquitto/            config do broker do Docker (notebook)
 docker-compose.yml          broker local para desenvolver sem o Pi
-docs/                       mqtt-topics.md (contrato), testando-esp32.md (testes), BACKLOG.md
+docs/                       mqtt-topics.md (contrato), testando-esp32.md (testes), algoritmo-de-fila.md, BACKLOG.md
 .github/workflows/ci.yml    lint + testes do edge e build do firmware
 Makefile                    todos os comandos do dia a dia
 ```
@@ -112,7 +112,7 @@ flash) e 34–39 (só entrada).
 No ciclo local do ESP32 (fallback sem Pi), `TEMPO_VERDE_MS`, `TEMPO_AMARELO_MS`, `TEMPO_VERMELHO_GERAL_MS`
 em `config.h`. Mantenha os dois iguais, a menos que a diferença seja intencional.
 
-**Algoritmo de fila:** está em `policy.py` (`QueuePolicy`), plugado como `green_policy` (função
+**Algoritmo de fila** (explicação completa em [docs/algoritmo-de-fila.md](docs/algoritmo-de-fila.md)): está em `policy.py` (`QueuePolicy`), plugado como `green_policy` (função
 `grupo "A"/"B" -> segundos de verde`, consultada ao entrar em cada verde). Para testar outra regra, crie outra
 policy e compare com `simulation.compare()` / `make simular`. Não mexa na sequência de fases (amarelo e
 vermelho geral) nem na retomada segura (`start_phase_for`): a alternância A/B é o que garante o anti-inanição.
