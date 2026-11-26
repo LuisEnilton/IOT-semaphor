@@ -1,4 +1,4 @@
-.PHONY: setup setup-pi broker lint test fw-build fw-upload fw-test fw-monitor monitor demo
+.PHONY: setup setup-pi broker lint test fw-build fw-upload fw-test fw-monitor monitor run demo
 VENV := $(CURDIR)/edge/.venv
 
 setup:        ## notebook: venv isolado + dependências
@@ -30,5 +30,6 @@ fw-monitor:
 	cd firmware && $(VENV)/bin/pio device monitor
 monitor:
 	cd edge && $(VENV)/bin/semaphor-edge monitor
-demo:
-	cd edge && $(VENV)/bin/semaphor-edge demo
+run:          ## controlador de fases (Pi comanda o ESP32); Ctrl+C para parar
+	cd edge && $(VENV)/bin/semaphor-edge run
+demo: run     ## nome antigo do run

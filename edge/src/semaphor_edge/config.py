@@ -18,6 +18,10 @@ class Config:
     mqtt_host: str
     mqtt_port: int
     intersection_id: str
+    green_s: float = 5.0
+    yellow_s: float = 2.0
+    all_red_s: float = 1.0
+    heartbeat_s: float = 1.0
 
     @classmethod
     def load(cls) -> "Config":
@@ -26,4 +30,8 @@ class Config:
             mqtt_host=os.getenv("MQTT_HOST", "localhost"),
             mqtt_port=int(os.getenv("MQTT_PORT", "1883")),
             intersection_id=os.getenv("INTERSECTION_ID", "cruzamento1"),
+            green_s=float(os.getenv("GREEN_S", "5")),
+            yellow_s=float(os.getenv("YELLOW_S", "2")),
+            all_red_s=float(os.getenv("ALL_RED_S", "1")),
+            heartbeat_s=float(os.getenv("HEARTBEAT_S", "1")),
         )

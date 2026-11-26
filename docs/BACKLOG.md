@@ -10,43 +10,46 @@ Visão técnica e regras do código: [AGENTS.md](../AGENTS.md). Arquitetura: [RE
 
 | Marco | Entrega | Itens |
 |---|---|---|
-| **M1. Pi no controle** | Pi roda o ciclo fixo como serviço e o ESP32 obedece | D1–D2, R1, E1.1–E1.4 |
+| **M1. Pi no controle** | Pi roda o ciclo fixo como serviço e o ESP32 obedece | R1, E1.1–E1.4 |
 | **M2. Algoritmo de fila** | Tempos de verde mudam conforme a fila (com contagem simulada) | E2, E3 |
 | **M3. Visão computacional** | Contagem real pela câmera substitui a simulada | E4 |
 | **M4. Demonstração** | Sistema completo inicia sozinho no boot e é apresentável | E5, E7 |
 
 ## Decisões pendentes (equipe)
 
-- [ ] **D1 (P0)** Tempos da maquete: amarelo e vermelho geral, e verde mínimo e máximo para o algoritmo.
-  Hoje o ciclo local do ESP32 usa verde 5 s, amarelo 2 s e vermelho geral 1 s.
-- [ ] **D2 (P0)** Rede da demonstração: continuar na Wi-Fi da UFPI (IPs mudam, risco de isolamento entre
-  dispositivos) ou usar um roteador/hotspot próprio do projeto. Afeta R1.
+- [x] **D1 (P0)** Tempos da maquete: mantidos os atuais (verde 5 s, amarelo 2 s, vermelho geral 1 s),
+  podendo mudar depois. Ficam configuráveis no Pi. Verde mínimo e máximo do algoritmo serão definidos em E3.1.
+- [x] **D2 (P0)** Rede da demonstração: **Wi-Fi da UFPI**. Riscos aceitos: IPs mudam (DHCP) e a rede pode
+  isolar dispositivos. Por isso R1 e R3 sobem de prioridade.
 - [ ] **D3 (P1)** Métrica de sucesso do algoritmo (ex.: tempo médio de espera, fila máxima, veículos
   atendidos por ciclo) para comparar com o ciclo fixo.
 - [ ] **D4 (P2)** Contar só carros ou também tipos de veículo (influencia a escolha do detector em E4).
 
 ## Infra e rede
 
-- [ ] **R1 (P0)** IP fixo para o Raspberry Pi (reserva na TI ou no roteador do projeto, conforme D2).
-  Hoje o `MQTT_HOST` é compilado no firmware: IP novo exige regravar o ESP32.
+- [ ] **R1 (P0)** Pedir à TI da UFPI uma reserva de IP (DHCP) para o Raspberry Pi, informando o endereço
+  MAC dele (`ip link show wlan0` no Pi). Hoje o `MQTT_HOST` é compilado no firmware: IP novo exige regravar o ESP32.
 - [ ] **R2 (P1)** Conferir se o CI passa no GitHub (Actions): lint, testes e build do firmware.
-- [ ] **R3 (P2)** Permitir trocar o `MQTT_HOST` do ESP32 sem regravar (ex.: salvar na NVS via comando
-  na serial, ou WiFiManager).
+- [ ] **R3 (P1, vira P0 se a TI negar o R1)** Permitir trocar o `MQTT_HOST` do ESP32 sem regravar
+  (ex.: salvar na NVS via comando na serial, ou WiFiManager).
 - [ ] **R4 (P2)** Autenticação (usuário/senha) no Mosquitto se o sistema sair da rede de desenvolvimento.
 
 ## E1. Controlador de fases no Pi (M1)
 
-- [ ] **E1.1 (P0)** Máquina de estados de fases em `edge/` (lógica pura, sem MQTT): via A verde → A amarelo →
+- [x] **E1.1 (P0)** Máquina de estados de fases em `edge/` (lógica pura, sem MQTT): via A verde → A amarelo →
   vermelho geral → via B verde → ... Recebe a duração do verde de fora (para o E3 plugar depois) e usa
   relógio injetável.
   *Aceite:* testes provam que A e B nunca ficam ativas juntas e que toda troca passa por amarelo e vermelho geral.
-- [ ] **E1.2 (P0)** Publicador MQTT: envia o estado da fase atual a cada 1 s (heartbeat, regra 3 do
+- [x] **E1.2 (P0)** Publicador MQTT: envia o estado da fase atual a cada 1 s (heartbeat, regra 3 do
   AGENTS.md), reconecta ao broker sozinho.
-- [ ] **E1.3 (P0)** Comando `semaphor-edge run` que liga E1.1 + E1.2 (inicialmente com ciclo fixo).
+- [x] **E1.3 (P0)** Comando `semaphor-edge run` que liga E1.1 + E1.2 (inicialmente com ciclo fixo).
   *Aceite:* com o `run` ativo, o `state` fica em `mode: remote` e segue as fases; ao parar, o ESP32
   volta ao ciclo local em 10 s.
-- [ ] **E1.4 (P1)** Ler `state` e `status`: registrar em log quando o ESP32 fica `offline`, cai para
+- [x] **E1.4 (P1)** Ler `state` e `status`: registrar em log quando o ESP32 fica `offline`, cai para
   `mode: local` ou rejeita um comando (o `state` não corresponde ao que foi enviado).
+- [x] **E1.5 (P1)** Retomada segura: ao assumir o controle e quando o ESP32 volta em modo `local`
+  (reboot, queda de Wi-Fi), o Pi continua pelo amarelo da via aberta, sem cortar verde.
+  Testado na placa com reset no meio do ciclo.
 
 ## E2. Contagem de veículos simulada (M2)
 
@@ -103,7 +106,8 @@ Visão técnica e regras do código: [AGENTS.md](../AGENTS.md). Arquitetura: [RE
 ## Concluído
 
 - [x] Ambiente de desenvolvimento (Makefile, venv, PlatformIO, CI, VS Code) e repositório no GitHub
-- [x] Contrato MQTT (`cmd`, `state`, `status`) e CLI `monitor`/`set`/`demo`
+- [x] Contrato MQTT (`cmd`, `state`, `status`) e CLI `monitor`/`set`
+- [x] E1: controlador de fases no Pi (`semaphor-edge run` / `make run`)
 - [x] Broker Mosquitto no Pi e comunicação Pi ↔ ESP32 validada
 - [x] Firmware dos 4 semáforos: resistor compartilhado, modos local/remote/test, rejeição de conflito A × B,
   timeout com volta ao ciclo local, firmware de teste de montagem

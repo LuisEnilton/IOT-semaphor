@@ -131,7 +131,7 @@ Estados válidos: `red`, `yellow`, `green`, `off`, `flash_yellow`. Vias: `N`, `L
 ### 3.3 Ciclo contínuo
 
 ```
-make demo           # mesmo ciclo do modo local, mas comandado pelo Pi/notebook (Ctrl+C para parar)
+make run            # controlador de fases: mesmo ciclo do modo local, comandado pelo Pi/notebook (Ctrl+C para parar)
 ```
 
 ## 4. Teste do timeout (volta ao ciclo local)

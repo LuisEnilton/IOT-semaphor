@@ -30,8 +30,10 @@ edge/
   src/semaphor_edge/
     config.py               lê .env + variáveis de ambiente
     protocol.py             ROADS, STATES, ROAD_GROUP, has_conflict(), build_cmd() com validação
-    cli.py                  semaphor-edge monitor | set VIA=ESTADO... | demo
-  tests/test_protocol.py
+    phases.py               Timing, Phase, PhaseController (lógica pura, relógio injetável), start_phase_for()
+    runner.py               Runner (heartbeat, retomada segura), StateMonitor (avisos), run() com paho-mqtt
+    cli.py                  semaphor-edge run [--green --yellow --all-red] | monitor | set VIA=ESTADO...
+  tests/                    test_protocol.py, test_phases.py, test_runner.py
 infra/mosquitto/            config do broker do Docker (notebook)
 docker-compose.yml          broker local para desenvolver sem o Pi
 docs/                       mqtt-topics.md (contrato), testando-esp32.md (testes), BACKLOG.md
@@ -52,7 +54,8 @@ Sempre use o Makefile; ele aponta para `edge/.venv` (o `pio` também está lá, 
 | `make fw-upload` / `make fw-monitor` | Grava e lê a serial do ESP32 (precisa da placa no USB) |
 | `make fw-test` | Grava o firmware de teste de montagem (env `teste`, `-DMODO_TESTE`): 12 LEDs em sequência, em repetição |
 | `make broker` | Sobe o Mosquitto via Docker no notebook |
-| `make monitor` / `make demo` | Assina `semaphor/<id>/#` / ciclo A/B com amarelo e vermelho geral, reenviando a cada 1 s |
+| `make run` | Controlador de fases: Pi comanda o ESP32 (tempos do `edge/.env`), heartbeat de 1 s. `make demo` é apelido |
+| `make monitor` | Assina `semaphor/<id>/#` e imprime tudo |
 
 **Antes de concluir qualquer mudança:** `make lint test` (Python) e `make fw-build` (firmware).
 O CI roda exatamente isso.
@@ -79,7 +82,7 @@ Semáforos físicos S1..S4 = vias `N`, `L`, `S`, `O`. Via **A** = N + S, via **B
    (exceção: o modo de teste, que acende um LED por vez no total).
 3. **Timeout e heartbeat.** Sem comando por `COMMAND_TIMEOUT_MS` (10 s), o ESP32 volta ao ciclo local
    (modo `local`). Todo controlador no Pi **deve reenviar o comando periodicamente** (bem abaixo de 10 s;
-   o `demo` usa 1 s), mesmo sem mudança de fase. Não remova nem enfraqueça esse mecanismo.
+   o `run` usa 1 s, `HEARTBEAT_S`), mesmo sem mudança de fase. Não remova nem enfraqueça esse mecanismo.
 4. **Conflito A × B.** Vias A e B nunca podem estar em verde/amarelo ao mesmo tempo. O ESP32 rejeita
    esses comandos e `protocol.build_cmd()` recusa montá-los, mas a lógica de fases do Pi (amarelo e
    vermelho geral entre trocas) é a responsável principal. Toda lógica de fases precisa de teste cobrindo isso.
@@ -100,8 +103,13 @@ Semáforos físicos S1..S4 = vias `N`, `L`, `S`, `O`. Via **A** = N + S, via **B
 linhas S1..S4 = N, L, S, O) e a tabela de pinos do README. Evite 1, 3, 6–11, 12 (strapping de tensão da
 flash) e 34–39 (só entrada).
 
-**Mudar tempos do ciclo local:** `TEMPO_VERDE_MS`, `TEMPO_AMARELO_MS`, `TEMPO_VERMELHO_GERAL_MS` em `config.h`.
-Se mudar, ajuste também `DEMO_CYCLE` em `cli.py` para os dois continuarem iguais.
+**Mudar tempos:** no Pi, `GREEN_S`, `YELLOW_S`, `ALL_RED_S` no `edge/.env` (ou `--green` etc. no `run`).
+No ciclo local do ESP32 (fallback sem Pi), `TEMPO_VERDE_MS`, `TEMPO_AMARELO_MS`, `TEMPO_VERMELHO_GERAL_MS`
+em `config.h`. Mantenha os dois iguais, a menos que a diferença seja intencional.
+
+**Algoritmo de fila (E3):** passe uma `green_policy` (função `grupo "A"/"B" -> segundos de verde`) ao
+`PhaseController`/`Runner`/`run()`. Ela é consultada ao entrar em cada verde. Não mexa na sequência de
+fases (amarelo e vermelho geral) nem na retomada segura (`start_phase_for`).
 
 **Novo estado de luz** (ex.: `flash_red`): adicione ao enum `LightState` e a `STATE_NAMES` em `main.cpp`,
 trate em `render()` (sempre via `showColor()`), adicione a `STATES` em `protocol.py`, decida se ele conta
@@ -157,7 +165,9 @@ Feito e testado com hardware:
 - Firmware da nova protoboard (testado na placa em 2026-11-24 com os 4 semáforos): pinos `sem[4][3]`,
   resistor compartilhado (`showColor()`), modos `local`/`remote`/`test`, rejeição de conflito A × B,
   Wi-Fi/MQTT não bloqueantes, firmware de teste de montagem (`make fw-test`).
-- Edge: config por `.env`, protocolo com validação (inclusive conflito A × B), CLI `monitor`/`set`/`demo`, testes do protocolo.
+- Edge: config por `.env`, protocolo com validação (inclusive conflito A × B), CLI `monitor`/`set`.
+- Controlador de fases E1 (`make run`), testado na placa via broker do Pi em 2026-11-26: ciclo 5/2/1 s,
+  heartbeat 1 s, avisos de `offline`/modo local/divergência, retomada pelo amarelo ao assumir e após reboot do ESP32.
 - Broker no Pi (`make setup-pi`) e ciclo completo Pi → ESP32 → Pi validado.
 - Documentação: README (arquitetura), contrato MQTT, tutorial de testes do ESP32.
 
@@ -167,7 +177,7 @@ Limitações conhecidas:
 
 - `onMessage()` no firmware não verifica o tópico (só há um assinado hoje).
 - `mqtt.connect()` pode bloquear ~alguns segundos se o broker não responder, atrasando a fase do ciclo local.
-- O `demo` é um ciclo fixo; não é o controlador real.
+- O `run` ainda não tem algoritmo de fila (verde fixo) e não roda como serviço (E5).
 - Broker anônimo e sem TLS.
 
 ## Próximos passos
@@ -175,19 +185,15 @@ Limitações conhecidas:
 Backlog detalhado, com prioridades, critérios de aceite e marcos: [docs/BACKLOG.md](docs/BACKLOG.md).
 Resumo:
 
-1. **Controlador de fases** (`edge/`): máquina de estados com fases N/S e L/O, amarelo e vermelho geral
-   entre trocas, reenvio periódico (heartbeat) e garantia de não conflito. Começar com ciclo fixo
-   (linha de base) e testes unitários com relógio injetável (sem `time.sleep` nos testes).
-   Tempos ainda a definir com a equipe (o ciclo local do ESP32 usa verde 5 s, amarelo 2 s, vermelho geral 1 s).
+1. ~~Controlador de fases~~ (feito: `make run`). Tempos mantidos em 5/2/1 s (decisão D1).
 2. **Fonte de contagem de veículos:** interface (ex.: `VehicleCounter.counts() -> dict[str, int]`) com
    implementação simulada (aleatória ou via CLI), para desenvolver o algoritmo sem câmera.
 3. **Algoritmo de fila:** tempos de verde dinâmicos conforme a contagem por via, com mínimo e máximo de
    verde para não deixar via esperando para sempre. Comparar com o ciclo fixo.
-4. **Serviço no Pi:** `semaphor-edge run` + unit systemd para iniciar no boot e usar o `state`/`status`
-   (ex.: reagir a `offline` e a `mode: local`).
+4. **Serviço no Pi:** unit systemd para o `semaphor-edge run` iniciar no boot (E5).
 5. **Visão computacional:** captura com picamera2 e detecção de veículos (OpenCV clássico como primeiro
    passo; YOLO via NCNN depois, provavelmente com fine-tuning para os carrinhos da maquete), implementando a
    mesma interface do item 2.
-6. **Qualidade:** filtro de tópico no firmware, testes do controlador e da CLI.
-7. **Rede e segurança:** IP fixo (reserva na TI ou roteador do projeto); autenticação no Mosquitto se sair
-   da rede de desenvolvimento.
+6. **Qualidade:** filtro de tópico no firmware, testes da CLI.
+7. **Rede e segurança:** rede da UFPI (decisão D2): reserva de IP do Pi na TI (R1); autenticação no Mosquitto
+   se sair da rede de desenvolvimento.

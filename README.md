@@ -83,8 +83,13 @@ Detalhes e formatos completos em [docs/mqtt-topics.md](docs/mqtt-topics.md).
 1. O algoritmo (Pi) decide abrir a via A (N/S) e fechar a via B (L/O).
 2. O cliente MQTT publica o JSON em `semaphor/cruzamento1/cmd` (QoS 1).
 3. O broker entrega ao ESP32, que valida o comando (sem conflito entre A e B) e atualiza as 4 vias e os 12 LEDs.
-4. O ESP32 publica o novo `state`; o Pi pode confirmar que o semáforo fez o que foi pedido.
-5. O Pi **reenvia o comando periodicamente** (a cada poucos segundos), mesmo sem mudança.
+4. O ESP32 publica o novo `state`; o Pi confere se o semáforo fez o que foi pedido e avisa no log se não.
+5. O Pi **reenvia o comando a cada 1 s** (heartbeat), mesmo sem mudança.
+
+Quem faz isso é o controlador de fases (`make run` / `semaphor-edge run`, código em `edge/src/semaphor_edge/`
+`phases.py` e `runner.py`). Os tempos vêm do `edge/.env` (`GREEN_S`, `YELLOW_S`, `ALL_RED_S`) ou das opções
+`--green`, `--yellow` e `--all-red`. Ao assumir o controle, e sempre que o ESP32 volta em modo `local`
+(reboot, queda de Wi-Fi), o Pi retoma pelo amarelo da via que estiver aberta, para nunca cortar um verde.
 
 ### Hardware da maquete
 
@@ -142,7 +147,7 @@ Pré-requisitos no notebook: Python ≥ 3.10, VS Code (instale as extensões rec
 4. Firmware: `make fw-build` → `make fw-upload` (ESP32 via USB) → `make fw-monitor`.
    Para conferir a montagem dos LEDs: `make fw-test` (firmware de teste) e depois `make fw-upload` para voltar ao normal.
    Se o upload falhar por permissão: `sudo usermod -aG dialout $USER` e reabra a sessão.
-5. Teste ponta a ponta: `make monitor` num terminal e `make demo` em outro (ou
+5. Teste ponta a ponta: `make monitor` num terminal e `make run` (controlador de fases) em outro (ou
    `edge/.venv/bin/semaphor-edge set N=green S=green L=red O=red`).
 
 > Guia completo de testes do ESP32 pelo notebook (serial, LEDs, MQTT, modos):
