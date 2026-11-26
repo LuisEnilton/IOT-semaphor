@@ -8,7 +8,7 @@ dependencies = ["paho-mqtt>=2.1"]
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "platformio>=6.1"]
 # Só no Pi: detecção com YOLO26 (picamera2 vem do apt). Não entra no CI.
-vision = ["ultralytics>=8.4"]
+vision = ["ultralytics>=8.4", "lap>=0.5.12"]  # lap: associação do rastreador ByteTrack
 
 [project.scripts]
 semaphor-edge = "semaphor_edge.cli:main"

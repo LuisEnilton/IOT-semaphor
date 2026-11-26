@@ -6,7 +6,7 @@ Os imports pesados ficam dentro das funções para o resto do pacote (e o CI) n�
 
 from collections.abc import Sequence
 
-from .counting import Box, Polygon, Smoother, anchor, count_by_roi
+from .counting import Box, Polygon, Smoother, TrackHold, anchor, count_by_roi
 
 ROAD_COLORS = {"N": (0, 0, 255), "L": (0, 200, 0), "S": (255, 0, 0), "O": (0, 200, 200)}
 
@@ -31,8 +31,41 @@ class Camera:
         self._cam.close()
 
 
+# Limiar mínimo que o rastreador recebe: detecções fracas só servem para manter quem já é seguido.
+TRACK_LOW_CONF = 0.1
+
+
+def _write_tracker_cfg(conf: float, buffer_frames: int) -> str:
+    """Gera o YAML do ByteTrack com histerese: entra com `conf`, se mantém com TRACK_LOW_CONF.
+
+    O caminho é fixo por configuração (sobrescrito a cada execução), então não acumula arquivos.
+    """
+    import tempfile
+    from pathlib import Path
+
+    cfg = {
+        "tracker_type": "bytetrack",
+        "track_high_thresh": conf,  # 1ª associação (detecções confiáveis)
+        "track_low_thresh": min(TRACK_LOW_CONF, conf),  # 2ª associação: só para tracks existentes
+        "new_track_thresh": conf,  # para começar a contar um objeto novo
+        "track_buffer": buffer_frames,  # frames em que um track perdido ainda pode ser retomado
+        "match_thresh": 0.8,
+        "fuse_score": True,
+    }
+    path = Path(tempfile.gettempdir()) / f"semaphor-bytetrack-{conf:g}-{buffer_frames}.yaml"
+    path.write_text("".join(f"{k}: {v}\n" for k, v in cfg.items()))
+    return str(path)
+
+
 class YoloCounter:
-    """Implementa VehicleCounter: captura, detecta e conta por ROI (com suavização)."""
+    """Implementa VehicleCounter: captura, detecta, rastreia e conta por ROI (com suavização).
+
+    Estabilização, da detecção para a contagem:
+    - NMS agnóstico: o mesmo objeto não vira duas caixas com classes diferentes;
+    - rastreamento ByteTrack (track=True): histerese de confiança e só conta objetos confirmados;
+    - TrackHold: um objeto rastreado continua contando por `hold_frames` frames sem detecção;
+    - Smoother: mediana das últimas `smooth_window` contagens por via.
+    """
 
     def __init__(
         self,
@@ -41,7 +74,9 @@ class YoloCounter:
         classes: Sequence[str],
         conf: float = 0.4,
         imgsz: int = 640,
-        smooth_window: int = 5,
+        smooth_window: int = 9,
+        track: bool = True,
+        hold_frames: int = 5,
         camera: Camera | None = None,
     ) -> None:
         from ultralytics import YOLO
@@ -51,6 +86,9 @@ class YoloCounter:
         self.conf = conf
         self.imgsz = imgsz
         self.class_ids = self._resolve_classes(classes)
+        self.track = track
+        self.hold = TrackHold(hold_frames)
+        self.tracker_cfg = _write_tracker_cfg(conf, max(30, 2 * hold_frames)) if track else None
         self.camera = camera or Camera()
         self.smoother = Smoother(smooth_window)
         self.last_frame = None
@@ -66,10 +104,25 @@ class YoloCounter:
         return [by_name[c] for c in classes]
 
     def detect(self, frame) -> list[Box]:
-        result = self.model.predict(
-            frame, imgsz=self.imgsz, conf=self.conf, classes=self.class_ids, verbose=False
+        """Caixas dos veículos no frame (rastreadas e mantidas, se track=True)."""
+        common = dict(imgsz=self.imgsz, classes=self.class_ids, agnostic_nms=True, verbose=False)
+        if not self.track:
+            result = self.model.predict(frame, conf=self.conf, **common)[0]
+            return [tuple(map(float, b)) for b in result.boxes.xyxy.tolist()]
+
+        result = self.model.track(
+            frame,
+            conf=min(TRACK_LOW_CONF, self.conf),
+            persist=True,
+            tracker=self.tracker_cfg,
+            **common,
         )[0]
-        return [tuple(map(float, b)) for b in result.boxes.xyxy.tolist()]
+        ids = result.boxes.id
+        tracks = []
+        if ids is not None:  # None quando nenhum objeto está confirmado neste frame
+            for tid, b in zip(ids.int().tolist(), result.boxes.xyxy.tolist(), strict=True):
+                tracks.append((tid, tuple(map(float, b))))
+        return self.hold.update(tracks)
 
     def counts(self) -> dict[str, int]:
         self.last_frame = self.camera.read()

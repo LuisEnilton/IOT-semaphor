@@ -93,6 +93,32 @@ class Smoother:
         return out
 
 
+class TrackHold:
+    """Mantém um objeto rastreado contando por até `hold_frames` frames sem detecção.
+
+    Recebe (id do rastreador, caixa) a cada frame. Se o detector falha por um ou dois frames, o
+    objeto continua na fila com a última caixa conhecida, em vez de sumir e voltar.
+    """
+
+    def __init__(self, hold_frames: int = 5) -> None:
+        if hold_frames < 0:
+            raise ValueError("hold_frames precisa ser >= 0")
+        self._hold = hold_frames
+        self._frame = 0
+        self._last: dict[int, tuple[Box, int]] = {}
+
+    def update(self, tracks: Iterable[tuple[int, Box]]) -> list[Box]:
+        self._frame += 1
+        for track_id, box in tracks:
+            self._last[track_id] = (box, self._frame)
+        self._last = {
+            tid: (box, seen)
+            for tid, (box, seen) in self._last.items()
+            if self._frame - seen <= self._hold
+        }
+        return [box for box, _seen in self._last.values()]
+
+
 class SimulatedCounter:
     """Fila simulada: cada via sobe ou desce no máximo 1 veículo por leitura (passeio aleatório)."""
 

@@ -5,12 +5,12 @@ O Pi conta quantos veículos esperam em cada via (`N`, `L`, `S`, `O`) com a câm
 essa contagem para decidir o tempo de verde.
 
 ```
-câmera (picamera2) -> YOLO26n NCNN -> caixas -> ponto de apoio na ROI da via -> mediana -> {N: 3, L: 0, ...}
-       vision.py                       vision.py            counting.py            counting.py
+câmera -> YOLO26n NCNN -> ByteTrack -> memória (TrackHold) -> ponto de apoio na ROI -> mediana -> {N: 3, ...}
+vision.py   vision.py      vision.py      counting.py             counting.py           counting.py
 ```
 
-- `counting.py` é lógica pura e testada no CI. Contém `VehicleCounter`, `count_by_roi`, `Smoother` e
-  `SimulatedCounter`.
+- `counting.py` é lógica pura e testada no CI. Contém `VehicleCounter`, `count_by_roi`, `TrackHold`,
+  `Smoother` e `SimulatedCounter`.
 - `vision.py` depende do hardware e do extra `vision`. Contém `Camera`, `YoloCounter` e `draw`.
 
 ## 1. Câmera
@@ -64,7 +64,35 @@ Só os tamanhos `n` e `s` são viáveis no Pi. Para ganhar velocidade, use `VISI
    base da caixa) e as ROIs com a contagem. Ajuste até a contagem bater. Pressione `q` para sair.
 
 Uma detecção conta para a via cuja ROI contém o seu ponto de apoio. Detecções fora de todas as ROIs são
-ignoradas. A contagem final é a mediana das últimas 5 leituras, para filtrar falhas de um só frame.
+ignoradas.
+
+### Estabilização da contagem
+
+O detector às vezes perde um objeto por um ou dois frames, ou o vê com outra classe. Para a fila não
+oscilar, a contagem passa por quatro filtros:
+
+1. **NMS agnóstico:** se o modelo vê o mesmo objeto como `mouse` e como `remote`, fica só uma caixa.
+2. **Rastreamento (ByteTrack):** cada objeto ganha um ID. Para **começar** a ser contado, ele precisa de
+   confiança ≥ `VISION_CONF`. Depois de rastreado, detecções fracas (até 0,1) bastam para mantê-lo.
+3. **Memória (`TrackHold`):** um objeto rastreado continua contando por `VISION_HOLD` frames mesmo sem
+   nenhuma detecção.
+4. **Mediana:** a contagem final é a mediana das últimas `VISION_SMOOTH` leituras (cerca de 2 s no Pi 5).
+
+O preço é um atraso: um veículo que sai da via demora até `VISION_HOLD` frames mais metade da janela da
+mediana para sair da contagem. Num semáforo isso não atrapalha, porque a fila muda devagar.
+
+| Sintoma | Ajuste |
+|---|---|
+| Objeto some e volta | Aumente `VISION_HOLD` (ex.: 10) ou baixe `VISION_CONF` (ex.: 0,3) |
+| Contagem demora a reagir | Diminua `VISION_SMOOTH` (ex.: 5) e `VISION_HOLD` (ex.: 3) |
+| Objetos inexistentes aparecem | Aumente `VISION_CONF` (ex.: 0,5) |
+| Mesmo objeto troca de classe | Liste todas as classes que ele recebe em `VISION_CLASSES` |
+
+Para comparar com a detecção crua, use `VISION_TRACK=0`.
+
+Nenhum ajuste de software compensa uma imagem ruim. Antes de mexer nos números, confira o foco (a
+OV5647 tem foco fixo e borra objetos próximos), a luz constante, o fundo fosco e contrastante e o
+tamanho dos objetos (pelo menos uns 40 px no frame de 640×480).
 
 ## 4. O que conta como veículo
 
@@ -73,8 +101,11 @@ Isso é configurado no `edge/.env`:
 ```
 VISION_MODEL=yolo26n_ncnn_model
 VISION_CLASSES=car,truck,bus     # nomes de classes COCO; vazio = todas
-VISION_CONF=0.4
+VISION_CONF=0.4                  # confiança para começar a contar um objeto
 VISION_IMGSZ=640
+VISION_TRACK=1                   # rastreamento ByteTrack (0 = detecção crua)
+VISION_HOLD=5                    # frames que um objeto rastreado conta sem ser detectado
+VISION_SMOOTH=9                  # tamanho da mediana, em leituras
 ```
 
 O modelo pré-treinado (COCO) pode **não** reconhecer os carrinhos da maquete. Primeiro teste com

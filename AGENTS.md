@@ -32,8 +32,8 @@ edge/
   src/semaphor_edge/
     config.py               lê .env + variáveis de ambiente
     protocol.py             ROADS, STATES, ROAD_GROUP, has_conflict(), build_cmd() com validação
-    counting.py             VehicleCounter, count_by_roi, Smoother, SimulatedCounter (puro, testado)
-    vision.py               Camera (picamera2), YoloCounter (YOLO26 NCNN), draw (imports preguiçosos)
+    counting.py             VehicleCounter, count_by_roi, TrackHold, Smoother, SimulatedCounter (puro)
+    vision.py               Camera (picamera2), YoloCounter (YOLO26 NCNN + ByteTrack), draw
     cli.py                  semaphor-edge monitor | set | demo | count [--sim] [--show] | snapshot
   tests/                    test_protocol.py, test_counting.py
 infra/mosquitto/            config do broker do Docker (notebook)
@@ -130,7 +130,8 @@ Novos comandos de CLI vão em `cli.py` (subparser + função `cmd_*`).
 (picamera2, libcamera) vêm do **apt**, não do pip. Dependências só do Pi vão no extra `vision`.
 
 **Visão computacional:** tutorial em [docs/visao.md](docs/visao.md). Mudar o que conta como veículo =
-`VISION_CLASSES` no `.env`; regiões das vias = `edge/rois.json`. Pesos e datasets não vão para o git.
+`VISION_CLASSES` no `.env`; regiões das vias = `edge/rois.json`; estabilidade da contagem =
+`VISION_CONF`, `VISION_TRACK`, `VISION_HOLD`, `VISION_SMOOTH` (tabela de ajuste no docs/visao.md). Pesos e datasets não vão para o git.
 
 ## Testar com hardware
 

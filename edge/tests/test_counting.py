@@ -5,6 +5,7 @@ import pytest
 from semaphor_edge.counting import (
     SimulatedCounter,
     Smoother,
+    TrackHold,
     anchor,
     count_by_roi,
     load_rois,
@@ -63,6 +64,27 @@ def test_smoother_filters_single_frame_spikes():
     s.update({"N": 2})
     assert s.update({"N": 9})["N"] == 2  # pico isolado não muda a fila
     assert s.update({"N": 9})["N"] == 9
+
+
+def test_track_hold_bridges_missed_frames():
+    hold = TrackHold(hold_frames=2)
+    a, b = (0, 0, 10, 10), (20, 0, 30, 10)
+    assert hold.update([(1, a), (2, b)]) == [a, b]
+    assert hold.update([(1, a)]) == [a, b]  # 2 falhou 1 frame: continua
+    assert hold.update([(1, a)]) == [a, b]  # 2 falhou 2 frames: continua
+    assert hold.update([(1, a)]) == [a]  # 3 frames sem 2: sai da fila
+
+
+def test_track_hold_uses_latest_box():
+    hold = TrackHold(hold_frames=1)
+    hold.update([(7, (0, 0, 10, 10))])
+    assert hold.update([(7, (5, 0, 15, 10))]) == [(5, 0, 15, 10)]
+
+
+def test_track_hold_zero_means_no_memory():
+    hold = TrackHold(hold_frames=0)
+    assert hold.update([(1, (0, 0, 1, 1))]) == [(0, 0, 1, 1)]
+    assert hold.update([]) == []
 
 
 def test_simulated_counter_is_reproducible_and_bounded():

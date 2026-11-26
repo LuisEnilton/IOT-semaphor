@@ -22,6 +22,9 @@ class Config:
     vision_classes: tuple[str, ...] = ("car", "truck", "bus")
     vision_conf: float = 0.4
     vision_imgsz: int = 640
+    vision_track: bool = True
+    vision_hold: int = 5
+    vision_smooth: int = 9
     rois_path: str = "rois.json"
 
     @classmethod
@@ -39,5 +42,9 @@ class Config:
             ),
             vision_conf=float(os.getenv("VISION_CONF", "0.4")),
             vision_imgsz=int(os.getenv("VISION_IMGSZ", "640")),
+            vision_track=os.getenv("VISION_TRACK", "1").strip().lower()
+            not in ("0", "false", "no", "nao", "não"),
+            vision_hold=int(os.getenv("VISION_HOLD", "5")),
+            vision_smooth=int(os.getenv("VISION_SMOOTH", "9")),
             rois_path=os.getenv("ROIS_PATH", "rois.json"),
         )

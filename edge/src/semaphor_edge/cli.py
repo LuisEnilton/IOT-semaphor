@@ -78,7 +78,14 @@ def _yolo_counter(cfg: Config):
     except ImportError as e:  # pragma: no cover - depende do ambiente
         sys.exit(f"erro: {e}. No Pi, rode 'make setup-vision' (ver docs/visao.md)")
     return YoloCounter(
-        cfg.vision_model, rois, cfg.vision_classes, conf=cfg.vision_conf, imgsz=cfg.vision_imgsz
+        cfg.vision_model,
+        rois,
+        cfg.vision_classes,
+        conf=cfg.vision_conf,
+        imgsz=cfg.vision_imgsz,
+        smooth_window=cfg.vision_smooth,
+        track=cfg.vision_track,
+        hold_frames=cfg.vision_hold,
     )
 
 
